@@ -580,3 +580,613 @@ func containsStr(s, substr string) bool {
 	}
 	return false
 }
+
+// ================ FirmwareStore 实现 ================
+
+// CreateFirmware 创建固件
+func (s *MemoryStore) CreateFirmware(_ context.Context, fw *model.Firmware) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id := s.nextID()
+	fw.ID = id
+	s.firmwares[id] = fw
+
+	key := fmt.Sprintf("%d_%s", fw.ModelID, fw.Version)
+	s.firmwareVersionIndex[key] = id
+
+	return nil
+}
+
+// GetFirmwareByID 根据ID获取固件
+func (s *MemoryStore) GetFirmwareByID(_ context.Context, id model.ID) (*model.Firmware, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	fw, ok := s.firmwares[id]
+	if !ok {
+		return nil, fmt.Errorf("firmware not found: id=%d", id)
+	}
+	return fw, nil
+}
+
+// GetFirmwareByVersion 根据型号和版本获取固件
+func (s *MemoryStore) GetFirmwareByVersion(_ context.Context, modelID model.ID, version string) (*model.Firmware, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	key := fmt.Sprintf("%d_%s", modelID, version)
+	id, ok := s.firmwareVersionIndex[key]
+	if !ok {
+		return nil, fmt.Errorf("firmware not found: model_id=%d, version=%s", modelID, version)
+	}
+	return s.firmwares[id], nil
+}
+
+// GetLatestFirmware 获取型号的最新固件
+func (s *MemoryStore) GetLatestFirmware(_ context.Context, modelID model.ID) (*model.Firmware, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var latest *model.Firmware
+	for _, fw := range s.firmwares {
+		if fw.ModelID == modelID {
+			if latest == nil || fw.ReleaseDate.After(latest.ReleaseDate) {
+				latest = fw
+			}
+		}
+	}
+	if latest == nil {
+		return nil, fmt.Errorf("no firmware found for model: %d", modelID)
+	}
+	return latest, nil
+}
+
+// ListFirmwares 列出固件
+func (s *MemoryStore) ListFirmwares(_ context.Context, page, pageSize int, modelID model.ID) ([]*model.Firmware, int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var firmwares []*model.Firmware
+	for _, fw := range s.firmwares {
+		if modelID > 0 && fw.ModelID != modelID {
+			continue
+		}
+		firmwares = append(firmwares, fw)
+	}
+
+	sort.Slice(firmwares, func(i, j int) bool {
+		return firmwares[i].ID < firmwares[j].ID
+	})
+
+	total := int64(len(firmwares))
+	start := (page - 1) * pageSize
+	if start > int(total) {
+		start = int(total)
+	}
+	end := start + pageSize
+	if end > int(total) {
+		end = int(total)
+	}
+
+	if start >= int(total) {
+		return []*model.Firmware{}, total, nil
+	}
+
+	return firmwares[start:end], total, nil
+}
+
+// ListFirmwaresByModel 根据型号列出固件
+func (s *MemoryStore) ListFirmwaresByModel(_ context.Context, modelID model.ID) ([]*model.Firmware, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*model.Firmware
+	for _, fw := range s.firmwares {
+		if fw.ModelID == modelID {
+			result = append(result, fw)
+		}
+	}
+	return result, nil
+}
+
+// UpdateFirmware 更新固件
+func (s *MemoryStore) UpdateFirmware(_ context.Context, fw *model.Firmware) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.firmwares[fw.ID]; !ok {
+		return fmt.Errorf("firmware not found: id=%d", fw.ID)
+	}
+
+	fw.UpdatedAt = time.Now()
+	s.firmwares[fw.ID] = fw
+	return nil
+}
+
+// SetFirmwareActive 设置固件活跃状态
+func (s *MemoryStore) SetFirmwareActive(ctx context.Context, id model.ID, active bool) error {
+	fw, err := s.GetFirmwareByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	fw.IsActive = active
+	return s.UpdateFirmware(ctx, fw)
+}
+
+// IncrementFirmwareDownload 增加下载计数
+func (s *MemoryStore) IncrementFirmwareDownload(_ context.Context, id model.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	fw, ok := s.firmwares[id]
+	if !ok {
+		return fmt.Errorf("firmware not found: id=%d", id)
+	}
+	fw.DownloadCount++
+	return nil
+}
+
+// DeleteFirmware 删除固件
+func (s *MemoryStore) DeleteFirmware(_ context.Context, id model.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	fw, ok := s.firmwares[id]
+	if !ok {
+		return fmt.Errorf("firmware not found: id=%d", id)
+	}
+
+	delete(s.firmwares, id)
+	key := fmt.Sprintf("%d_%s", fw.ModelID, fw.Version)
+	delete(s.firmwareVersionIndex, key)
+
+	return nil
+}
+
+// GetAllFirmwares 获取所有固件
+func (s *MemoryStore) GetAllFirmwares(_ context.Context) ([]*model.Firmware, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*model.Firmware
+	for _, fw := range s.firmwares {
+		result = append(result, fw)
+	}
+	return result, nil
+}
+
+// CountFirmwaresByModel 按型号统计固件数量
+func (s *MemoryStore) CountFirmwaresByModel(_ context.Context) (map[model.ID]int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[model.ID]int)
+	for _, fw := range s.firmwares {
+		result[fw.ModelID]++
+	}
+	return result, nil
+}
+
+// ================ TaskStore 实现 ================
+
+// CreateTask 创建任务
+func (s *MemoryStore) CreateTask(_ context.Context, task *model.UpgradeTask) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id := s.nextID()
+	task.ID = id
+	s.tasks[id] = task
+
+	return nil
+}
+
+// GetTaskByID 根据ID获取任务
+func (s *MemoryStore) GetTaskByID(_ context.Context, id model.ID) (*model.UpgradeTask, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	task, ok := s.tasks[id]
+	if !ok {
+		return nil, fmt.Errorf("task not found: id=%d", id)
+	}
+	return task, nil
+}
+
+// ListTasks 列出任务
+func (s *MemoryStore) ListTasks(_ context.Context, page, pageSize int, status model.TaskStatus) ([]*model.UpgradeTask, int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var tasks []*model.UpgradeTask
+	for _, t := range s.tasks {
+		if status != "" && t.Status != status {
+			continue
+		}
+		tasks = append(tasks, t)
+	}
+
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].ID < tasks[j].ID
+	})
+
+	total := int64(len(tasks))
+	start := (page - 1) * pageSize
+	if start > int(total) {
+		start = int(total)
+	}
+	end := start + pageSize
+	if end > int(total) {
+		end = int(total)
+	}
+
+	if start >= int(total) {
+		return []*model.UpgradeTask{}, total, nil
+	}
+
+	return tasks[start:end], total, nil
+}
+
+// ListActiveTasks 列出活跃任务
+func (s *MemoryStore) ListActiveTasks(_ context.Context) ([]*model.UpgradeTask, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*model.UpgradeTask
+	for _, t := range s.tasks {
+		if t.Status == model.TaskPending || t.Status == model.TaskRunning {
+			result = append(result, t)
+		}
+	}
+	return result, nil
+}
+
+// ListTasksByModel 根据型号列出任务
+func (s *MemoryStore) ListTasksByModel(_ context.Context, modelID model.ID) ([]*model.UpgradeTask, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*model.UpgradeTask
+	for _, t := range s.tasks {
+		if t.ModelID == modelID {
+			result = append(result, t)
+		}
+	}
+	return result, nil
+}
+
+// UpdateTask 更新任务
+func (s *MemoryStore) UpdateTask(_ context.Context, task *model.UpgradeTask) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.tasks[task.ID]; !ok {
+		return fmt.Errorf("task not found: id=%d", task.ID)
+	}
+
+	task.UpdatedAt = time.Now()
+	s.tasks[task.ID] = task
+	return nil
+}
+
+// UpdateTaskStatus 更新任务状态
+func (s *MemoryStore) UpdateTaskStatus(_ context.Context, id model.ID, status model.TaskStatus) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[id]
+	if !ok {
+		return fmt.Errorf("task not found: id=%d", id)
+	}
+
+	task.Status = status
+	if status == model.TaskRunning && task.StartedAt == nil {
+		now := time.Now()
+		task.StartedAt = &now
+	}
+	if status == model.TaskCompleted || status == model.TaskFailed {
+		now := time.Now()
+		task.CompletedAt = &now
+	}
+	return nil
+}
+
+// UpdateTaskProgress 更新任务进度
+func (s *MemoryStore) UpdateTaskProgress(_ context.Context, id model.ID, successCount, failCount, pendingCount int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	task, ok := s.tasks[id]
+	if !ok {
+		return fmt.Errorf("task not found: id=%d", id)
+	}
+
+	task.SuccessCount = successCount
+	task.FailCount = failCount
+	task.PendingCount = pendingCount
+	task.Progress = task.CalculateProgress()
+	return nil
+}
+
+// DeleteTask 删除任务
+func (s *MemoryStore) DeleteTask(_ context.Context, id model.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.tasks[id]; !ok {
+		return fmt.Errorf("task not found: id=%d", id)
+	}
+
+	delete(s.tasks, id)
+	return nil
+}
+
+// GetAllTasks 获取所有任务
+func (s *MemoryStore) GetAllTasks(_ context.Context) ([]*model.UpgradeTask, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*model.UpgradeTask
+	for _, t := range s.tasks {
+		result = append(result, t)
+	}
+	return result, nil
+}
+
+// SearchTasks 搜索任务
+func (s *MemoryStore) SearchTasks(_ context.Context, keyword string, page, pageSize int) ([]*model.UpgradeTask, int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	keywordLower := toLower(keyword)
+	var tasks []*model.UpgradeTask
+	for _, t := range s.tasks {
+		if containsStr(toLower(t.Name), keywordLower) ||
+			containsStr(toLower(t.Description), keywordLower) {
+			tasks = append(tasks, t)
+		}
+	}
+
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].ID < tasks[j].ID
+	})
+
+	total := int64(len(tasks))
+	start := (page - 1) * pageSize
+	if start > int(total) {
+		start = int(total)
+	}
+	end := start + pageSize
+	if end > int(total) {
+		end = int(total)
+	}
+
+	if start >= int(total) {
+		return []*model.UpgradeTask{}, total, nil
+	}
+
+	return tasks[start:end], total, nil
+}
+
+// GetRecentTasks 获取最近任务
+func (s *MemoryStore) GetRecentTasks(_ context.Context, limit int) ([]*model.UpgradeTask, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var tasks []*model.UpgradeTask
+	for _, t := range s.tasks {
+		tasks = append(tasks, t)
+	}
+
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
+	})
+
+	if limit > len(tasks) {
+		limit = len(tasks)
+	}
+	return tasks[:limit], nil
+}
+
+// ================ RecordStore 实现 ================
+
+// CreateRecord 创建记录
+func (s *MemoryStore) CreateRecord(_ context.Context, record *model.UpgradeRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	id := s.nextID()
+	record.ID = id
+	s.records[id] = record
+
+	return nil
+}
+
+// GetRecordByID 根据ID获取记录
+func (s *MemoryStore) GetRecordByID(_ context.Context, id model.ID) (*model.UpgradeRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	record, ok := s.records[id]
+	if !ok {
+		return nil, fmt.Errorf("record not found: id=%d", id)
+	}
+	return record, nil
+}
+
+// ListRecords 列出记录
+func (s *MemoryStore) ListRecords(_ context.Context, page, pageSize int, status model.UpgradeStatus) ([]*model.UpgradeRecord, int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var records []*model.UpgradeRecord
+	for _, r := range s.records {
+		if status != "" && r.Status != status {
+			continue
+		}
+		records = append(records, r)
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].StartedAt.After(records[j].StartedAt)
+	})
+
+	total := int64(len(records))
+	start := (page - 1) * pageSize
+	if start > int(total) {
+		start = int(total)
+	}
+	end := start + pageSize
+	if end > int(total) {
+		end = int(total)
+	}
+
+	if start >= int(total) {
+		return []*model.UpgradeRecord{}, total, nil
+	}
+
+	return records[start:end], total, nil
+}
+
+// ListRecordsByDevice 根据设备列出记录
+func (s *MemoryStore) ListRecordsByDevice(_ context.Context, deviceID string) ([]*model.UpgradeRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*model.UpgradeRecord
+	for _, r := range s.records {
+		if r.DeviceID == deviceID {
+			result = append(result, r)
+		}
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].StartedAt.After(result[j].StartedAt)
+	})
+
+	return result, nil
+}
+
+// ListRecordsByTask 根据任务列出记录
+func (s *MemoryStore) ListRecordsByTask(_ context.Context, taskID model.ID) ([]*model.UpgradeRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*model.UpgradeRecord
+	for _, r := range s.records {
+		if r.TaskID == taskID {
+			result = append(result, r)
+		}
+	}
+	return result, nil
+}
+
+// UpdateRecord 更新记录
+func (s *MemoryStore) UpdateRecord(_ context.Context, record *model.UpgradeRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.records[record.ID]; !ok {
+		return fmt.Errorf("record not found: id=%d", record.ID)
+	}
+
+	s.records[record.ID] = record
+	return nil
+}
+
+// UpdateRecordStatus 更新记录状态
+func (s *MemoryStore) UpdateRecordStatus(_ context.Context, id model.ID, status model.UpgradeStatus, progress int, errorMsg string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	record, ok := s.records[id]
+	if !ok {
+		return fmt.Errorf("record not found: id=%d", id)
+	}
+
+	record.Status = status
+	record.Progress = progress
+	if errorMsg != "" {
+		record.ErrorMessage = errorMsg
+	}
+	if status == model.UpgradeSuccess || status == model.UpgradeFailed {
+		now := time.Now()
+		record.CompletedAt = &now
+		record.Duration = now.Sub(record.StartedAt).Milliseconds()
+	}
+
+	return nil
+}
+
+// DeleteRecord 删除记录
+func (s *MemoryStore) DeleteRecord(_ context.Context, id model.ID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, ok := s.records[id]; !ok {
+		return fmt.Errorf("record not found: id=%d", id)
+	}
+
+	delete(s.records, id)
+	return nil
+}
+
+// GetAllRecords 获取所有记录
+func (s *MemoryStore) GetAllRecords(_ context.Context) ([]*model.UpgradeRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var result []*model.UpgradeRecord
+	for _, r := range s.records {
+		result = append(result, r)
+	}
+	return result, nil
+}
+
+// GetRecentRecords 获取最近记录
+func (s *MemoryStore) GetRecentRecords(_ context.Context, limit int) ([]*model.UpgradeRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var records []*model.UpgradeRecord
+	for _, r := range s.records {
+		records = append(records, r)
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return records[i].StartedAt.After(records[j].StartedAt)
+	})
+
+	if limit > len(records) {
+		limit = len(records)
+	}
+	return records[:limit], nil
+}
+
+// CountRecordsByStatus 按状态统计记录
+func (s *MemoryStore) CountRecordsByStatus(_ context.Context) (map[model.UpgradeStatus]int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make(map[model.UpgradeStatus]int)
+	for _, r := range s.records {
+		result[r.Status]++
+	}
+	return result, nil
+}
+
+// CountTodayRecords 统计今日记录数
+func (s *MemoryStore) CountTodayRecords(_ context.Context) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	today := time.Now()
+	count := 0
+	for _, r := range s.records {
+		if r.StartedAt.Year() == today.Year() && r.StartedAt.Month() == today.Month() && r.StartedAt.Day() == today.Day() {
+			count++
+		}
+	}
+	return count, nil
+}
