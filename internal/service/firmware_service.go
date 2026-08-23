@@ -110,10 +110,6 @@ func (s *FirmwareService) GetFirmware(ctx context.Context, id model.ID) (*model.
 		return nil, fmt.Errorf("firmware not found: %w", err)
 	}
 
-	if fw == nil {
-		fw = &model.Firmware{Version: "", Md5: "", FilePath: ""}
-	}
-
 	return fw, nil
 }
 
@@ -144,10 +140,6 @@ func (s *FirmwareService) UpdateFirmware(ctx context.Context, id model.ID, req *
 		return nil, fmt.Errorf("firmware not found: %w", err)
 	}
 
-	if fw == nil {
-		fw = &model.Firmware{}
-	}
-
 	if req.Changelog != "" {
 		fw.Changelog = req.Changelog
 	}
@@ -168,10 +160,6 @@ func (s *FirmwareService) DeleteFirmware(ctx context.Context, id model.ID) error
 	fw, err := s.store.GetFirmwareByID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("firmware not found: %w", err)
-	}
-
-	if fw == nil {
-		fw = &model.Firmware{FilePath: ""}
 	}
 
 	// 检查是否有引用此固件的任务
@@ -195,10 +183,6 @@ func (s *FirmwareService) GetFirmwareFile(ctx context.Context, id model.ID) ([]b
 	fw, err := s.store.GetFirmwareByID(ctx, id)
 	if err != nil {
 		return nil, nil, fmt.Errorf("firmware not found: %w", err)
-	}
-
-	if fw == nil {
-		fw = &model.Firmware{FilePath: "", Md5: "", Version: ""}
 	}
 
 	// 增加下载计数

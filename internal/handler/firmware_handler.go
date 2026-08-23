@@ -7,6 +7,7 @@ import (
 	"fwupgrade/internal/config"
 	"fwupgrade/internal/model"
 	"fwupgrade/internal/service"
+	"fwupgrade/internal/store"
 	"fwupgrade/pkg/logger"
 	"fwupgrade/pkg/response"
 )
@@ -126,7 +127,11 @@ func (h *FirmwareHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	fw, err := h.service.UpdateFirmware(r.Context(), model.ID(id), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		if store.IsNotFound(err) {
+			response.NotFound(w, err.Error())
+		} else {
+			response.InternalError(w, err.Error())
+		}
 		return
 	}
 
@@ -142,7 +147,11 @@ func (h *FirmwareHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.DeleteFirmware(r.Context(), model.ID(id)); err != nil {
-		response.InternalError(w, err.Error())
+		if store.IsNotFound(err) {
+			response.NotFound(w, err.Error())
+		} else {
+			response.InternalError(w, err.Error())
+		}
 		return
 	}
 
@@ -159,7 +168,11 @@ func (h *FirmwareHandler) Download(w http.ResponseWriter, r *http.Request) {
 
 	data, fw, err := h.service.GetFirmwareFile(r.Context(), model.ID(id))
 	if err != nil {
-		response.NotFound(w, err.Error())
+		if store.IsNotFound(err) {
+			response.NotFound(w, err.Error())
+		} else {
+			response.InternalError(w, err.Error())
+		}
 		return
 	}
 

@@ -273,7 +273,7 @@ func (s *MemoryStore) GetDeviceByID(_ context.Context, id model.ID) (*model.Devi
 
 	d, ok := s.devices[id]
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 	return d, nil
 }
@@ -285,7 +285,7 @@ func (s *MemoryStore) GetDeviceByDeviceID(_ context.Context, deviceID string) (*
 
 	id, ok := s.deviceIDIndex[deviceID]
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("%w: device_id=%s", ErrNotFound, deviceID)
 	}
 	return s.devices[id], nil
 }
@@ -376,7 +376,7 @@ func (s *MemoryStore) UpdateDevice(_ context.Context, d *model.Device) error {
 	defer s.mu.Unlock()
 
 	if _, ok := s.devices[d.ID]; !ok {
-		return fmt.Errorf("device not found: id=%d", d.ID)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, d.ID)
 	}
 
 	s.devices[d.ID] = d
@@ -390,7 +390,7 @@ func (s *MemoryStore) UpdateDeviceStatus(_ context.Context, id model.ID, status 
 
 	d, ok := s.devices[id]
 	if !ok {
-		return fmt.Errorf("device not found: id=%d", id)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 
 	d.Status = status
@@ -405,7 +405,7 @@ func (s *MemoryStore) UpdateDeviceLastSeen(_ context.Context, id model.ID) error
 
 	d, ok := s.devices[id]
 	if !ok {
-		return fmt.Errorf("device not found: id=%d", id)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 
 	d.LastSeenAt = time.Now()
@@ -419,7 +419,7 @@ func (s *MemoryStore) UpdateDeviceProgress(_ context.Context, id model.ID, progr
 
 	d, ok := s.devices[id]
 	if !ok {
-		return fmt.Errorf("device not found: id=%d", id)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 
 	d.UpgradeProgress = progress
@@ -437,7 +437,7 @@ func (s *MemoryStore) DeleteDevice(_ context.Context, id model.ID) error {
 
 	d, ok := s.devices[id]
 	if !ok {
-		return fmt.Errorf("device not found: id=%d", id)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 
 	delete(s.devices, id)

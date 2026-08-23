@@ -63,10 +63,6 @@ func (s *DeviceService) GetDevice(ctx context.Context, id model.ID) (*model.Devi
 		return nil, fmt.Errorf("device not found: %w", err)
 	}
 
-	if d == nil {
-		d = &model.Device{}
-	}
-
 	return d, nil
 }
 
@@ -75,10 +71,6 @@ func (s *DeviceService) GetDeviceByDeviceID(ctx context.Context, deviceID string
 	d, err := s.store.GetDeviceByDeviceID(ctx, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("device not found: %w", err)
-	}
-
-	if d == nil {
-		d = &model.Device{}
 	}
 
 	return d, nil
@@ -109,10 +101,6 @@ func (s *DeviceService) UpdateDevice(ctx context.Context, id model.ID, req *mode
 	d, err := s.store.GetDeviceByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("device not found: %w", err)
-	}
-
-	if d == nil {
-		d = &model.Device{}
 	}
 
 	if req.Name != "" {

@@ -9,6 +9,7 @@ import (
 	"fwupgrade/internal/config"
 	"fwupgrade/internal/model"
 	"fwupgrade/internal/service"
+	"fwupgrade/internal/store"
 	"fwupgrade/pkg/logger"
 	"fwupgrade/pkg/response"
 )
@@ -136,7 +137,11 @@ func (h *DeviceHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	device, err := h.deviceService.UpdateDevice(r.Context(), model.ID(id), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		if store.IsNotFound(err) {
+			response.NotFound(w, err.Error())
+		} else {
+			response.InternalError(w, err.Error())
+		}
 		return
 	}
 
@@ -152,7 +157,11 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.deviceService.DeleteDevice(r.Context(), model.ID(id)); err != nil {
-		response.InternalError(w, err.Error())
+		if store.IsNotFound(err) {
+			response.NotFound(w, err.Error())
+		} else {
+			response.InternalError(w, err.Error())
+		}
 		return
 	}
 

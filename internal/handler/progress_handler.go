@@ -6,6 +6,7 @@ import (
 	"fwupgrade/internal/config"
 	"fwupgrade/internal/model"
 	"fwupgrade/internal/service"
+	"fwupgrade/internal/store"
 	"fwupgrade/pkg/response"
 )
 
@@ -32,7 +33,11 @@ func (h *ProgressHandler) Report(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.ReportProgress(r.Context(), &req); err != nil {
-		response.InternalError(w, err.Error())
+		if store.IsNotFound(err) {
+			response.NotFound(w, err.Error())
+		} else {
+			response.InternalError(w, err.Error())
+		}
 		return
 	}
 
