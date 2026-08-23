@@ -47,8 +47,16 @@ func (s *FirmwareService) RawSnapshot() map[string]interface{} {
 
 func (s *FirmwareService) normalizeVersionForSort(version string) string {
 	v := version
+	if v == "" {
+		// 空版本归一化为空字符串，排序时排在所有正常版本之前，
+		// 并避免对空字符串做下标访问导致 "index out of range"。
+		return ""
+	}
 	if v[0] == 'v' || v[0] == 'V' {
 		v = v[1:]
+	}
+	if v == "" {
+		return ""
 	}
 	parts := strings.Split(v, ".")
 	var normalized []string

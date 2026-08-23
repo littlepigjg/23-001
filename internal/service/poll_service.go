@@ -64,8 +64,16 @@ func compareVersionStrings(v1, v2 string) bool {
 
 func normalizeVersion(version string) string {
 	v := version
+	if v == "" {
+		// 空版本号归一化为空字符串，使其排序在所有正常版本之前，
+		// 同时避免对空字符串做下标访问导致 "index out of range"。
+		return ""
+	}
 	if v[0] == 'v' || v[0] == 'V' {
 		v = v[1:]
+	}
+	if v == "" {
+		return ""
 	}
 	parts := strings.Split(v, ".")
 	var normalized []string
@@ -154,6 +162,11 @@ func (s *PollService) PollDevice(ctx context.Context, req *model.PollUpgradeRequ
 }
 
 func (s *PollService) ShouldSkipUpgrade(currentVer, targetVer string) bool {
+	// 当前版本为空（设备未上报版本）时，不应视为"已在目标版本"，
+	// 允许其参与升级；否则空版本会被错误地判定为已满足目标版本而跳过。
+	if currentVer == "" {
+		return false
+	}
 	normCurrent := normalizeVersion(currentVer)
 	normTarget := normalizeVersion(targetVer)
 	return normCurrent >= normTarget
