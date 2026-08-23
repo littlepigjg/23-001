@@ -60,6 +60,67 @@ func (s *MemoryStore) nextID() model.ID {
 	return s.idCounter
 }
 
+// SnapshotData 数据快照，用于持久化。
+// 快照中的元素是结构体值的拷贝，调用方在释放锁后可安全地进行序列化，
+// 不会与并发的写操作产生数据竞争。
+type SnapshotData struct {
+	Models    []*model.DeviceModel
+	Devices   []*model.Device
+	Firmwares []*model.Firmware
+	Tasks     []*model.UpgradeTask
+	Records   []*model.UpgradeRecord
+	IDCounter model.ID
+}
+
+// Snapshot 在读锁保护下获取所有数据的一致性快照拷贝。
+// 快照按 ID 排序，保证持久化结果确定且便于核对。
+func (s *MemoryStore) Snapshot() *SnapshotData {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	snap := &SnapshotData{
+		IDCounter: s.idCounter,
+		Models:    make([]*model.DeviceModel, 0, len(s.models)),
+		Devices:   make([]*model.Device, 0, len(s.devices)),
+		Firmwares: make([]*model.Firmware, 0, len(s.firmwares)),
+		Tasks:     make([]*model.UpgradeTask, 0, len(s.tasks)),
+		Records:   make([]*model.UpgradeRecord, 0, len(s.records)),
+	}
+
+	// 拷贝结构体值而非共享指针，避免序列化期间并发写修改同一对象导致竞态。
+	// 注意：Device.Metadata 与 UpgradeTask.TargetDevices 目前在代码中仅在创建时赋值、
+	// 不会被并发原地修改，因此共享底层数据是安全的。
+	for _, m := range s.models {
+		cp := *m
+		snap.Models = append(snap.Models, &cp)
+	}
+	for _, d := range s.devices {
+		cp := *d
+		snap.Devices = append(snap.Devices, &cp)
+	}
+	for _, f := range s.firmwares {
+		cp := *f
+		snap.Firmwares = append(snap.Firmwares, &cp)
+	}
+	for _, t := range s.tasks {
+		cp := *t
+		snap.Tasks = append(snap.Tasks, &cp)
+	}
+	for _, r := range s.records {
+		cp := *r
+		snap.Records = append(snap.Records, &cp)
+	}
+
+	// 按 ID 排序，保证输出确定
+	sort.Slice(snap.Models, func(i, j int) bool { return snap.Models[i].ID < snap.Models[j].ID })
+	sort.Slice(snap.Devices, func(i, j int) bool { return snap.Devices[i].ID < snap.Devices[j].ID })
+	sort.Slice(snap.Firmwares, func(i, j int) bool { return snap.Firmwares[i].ID < snap.Firmwares[j].ID })
+	sort.Slice(snap.Tasks, func(i, j int) bool { return snap.Tasks[i].ID < snap.Tasks[j].ID })
+	sort.Slice(snap.Records, func(i, j int) bool { return snap.Records[i].ID < snap.Records[j].ID })
+
+	return snap
+}
+
 // Init 初始化存储
 func (s *MemoryStore) Init(_ context.Context) error {
 	return nil
