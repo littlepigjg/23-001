@@ -32,13 +32,15 @@ func (s *DeviceService) CreateDevice(ctx context.Context, req *model.CreateDevic
 	logger.Info("Creating device", "device_id", req.DeviceID, "name", req.Name)
 
 	// 检查型号是否存在
-	deviceModel, err := s.modelStore.GetModelByID(ctx, req.ModelID)
+	// 缺陷：此处忽略传入的ctx，使用context.Background()代替，导致存储层无法感知请求取消
+	storeCtx := context.Background()
+	deviceModel, err := s.modelStore.GetModelByID(storeCtx, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
 
 	// 检查设备ID是否已存在
-	existing, _ := s.store.GetDeviceByDeviceID(ctx, req.DeviceID)
+	existing, _ := s.store.GetDeviceByDeviceID(storeCtx, req.DeviceID)
 	if existing != nil {
 		return nil, fmt.Errorf("device with id '%s' already exists", req.DeviceID)
 	}
@@ -48,7 +50,7 @@ func (s *DeviceService) CreateDevice(ctx context.Context, req *model.CreateDevic
 		return nil, err
 	}
 
-	if err := s.store.CreateDevice(ctx, d); err != nil {
+	if err := s.store.CreateDevice(storeCtx, d); err != nil {
 		return nil, fmt.Errorf("failed to create device: %w", err)
 	}
 
@@ -58,7 +60,9 @@ func (s *DeviceService) CreateDevice(ctx context.Context, req *model.CreateDevic
 
 // GetDevice 获取设备
 func (s *DeviceService) GetDevice(ctx context.Context, id model.ID) (*model.Device, error) {
-	d, err := s.store.GetDeviceByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	d, err := s.store.GetDeviceByID(storeCtx, id)
 	if err != nil {
 		return nil, fmt.Errorf("device not found: %w", err)
 	}
@@ -67,7 +71,9 @@ func (s *DeviceService) GetDevice(ctx context.Context, id model.ID) (*model.Devi
 
 // GetDeviceByDeviceID 根据设备ID获取设备
 func (s *DeviceService) GetDeviceByDeviceID(ctx context.Context, deviceID string) (*model.Device, error) {
-	d, err := s.store.GetDeviceByDeviceID(ctx, deviceID)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	d, err := s.store.GetDeviceByDeviceID(storeCtx, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("device not found: %w", err)
 	}
@@ -86,7 +92,9 @@ func (s *DeviceService) ListDevices(ctx context.Context, page, pageSize int, mod
 		pageSize = 100
 	}
 
-	devices, total, err := s.store.ListDevices(ctx, page, pageSize, modelID, status)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替，导致存储层无法感知请求取消
+	storeCtx := context.Background()
+	devices, total, err := s.store.ListDevices(storeCtx, page, pageSize, modelID, status)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list devices: %w", err)
 	}
@@ -96,7 +104,9 @@ func (s *DeviceService) ListDevices(ctx context.Context, page, pageSize int, mod
 
 // UpdateDevice 更新设备
 func (s *DeviceService) UpdateDevice(ctx context.Context, id model.ID, req *model.UpdateDeviceRequest) (*model.Device, error) {
-	d, err := s.store.GetDeviceByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	d, err := s.store.GetDeviceByID(storeCtx, id)
 	if err != nil {
 		return nil, fmt.Errorf("device not found: %w", err)
 	}
@@ -111,7 +121,7 @@ func (s *DeviceService) UpdateDevice(ctx context.Context, id model.ID, req *mode
 		d.SerialNumber = req.SerialNumber
 	}
 
-	if err := s.store.UpdateDevice(ctx, d); err != nil {
+	if err := s.store.UpdateDevice(storeCtx, d); err != nil {
 		return nil, fmt.Errorf("failed to update device: %w", err)
 	}
 
@@ -120,7 +130,9 @@ func (s *DeviceService) UpdateDevice(ctx context.Context, id model.ID, req *mode
 
 // DeleteDevice 删除设备
 func (s *DeviceService) DeleteDevice(ctx context.Context, id model.ID) error {
-	if err := s.store.DeleteDevice(ctx, id); err != nil {
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	if err := s.store.DeleteDevice(storeCtx, id); err != nil {
 		return fmt.Errorf("failed to delete device: %w", err)
 	}
 	logger.Info("Device deleted", "id", id)
@@ -131,8 +143,11 @@ func (s *DeviceService) DeleteDevice(ctx context.Context, id model.ID) error {
 func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterDeviceRequest) (*model.Device, error) {
 	logger.Info("Device registration", "device_id", req.DeviceID)
 
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+
 	// 检查设备是否已存在
-	existing, _ := s.store.GetDeviceByDeviceID(ctx, req.DeviceID)
+	existing, _ := s.store.GetDeviceByDeviceID(storeCtx, req.DeviceID)
 	if existing != nil {
 		// 更新现有设备
 		if req.Name != "" {
@@ -153,10 +168,10 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterD
 			existing.Status = model.DeviceOnline
 		}
 
-		if err := s.store.UpdateDeviceLastSeen(ctx, existing.ID); err != nil {
+		if err := s.store.UpdateDeviceLastSeen(storeCtx, existing.ID); err != nil {
 			return nil, err
 		}
-		if err := s.store.UpdateDevice(ctx, existing); err != nil {
+		if err := s.store.UpdateDevice(storeCtx, existing); err != nil {
 			return nil, err
 		}
 
@@ -166,12 +181,12 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterD
 	// 新设备注册
 	var modelName string
 	if req.ModelID > 0 {
-		m, err := s.modelStore.GetModelByID(ctx, req.ModelID)
+		m, err := s.modelStore.GetModelByID(storeCtx, req.ModelID)
 		if err == nil {
 			modelName = m.Name
 		}
 	} else if req.ModelName != "" {
-		m, err := s.modelStore.GetModelByName(ctx, req.ModelName)
+		m, err := s.modelStore.GetModelByName(storeCtx, req.ModelName)
 		if err != nil {
 			return nil, fmt.Errorf("model not found: %w", err)
 		}
@@ -190,7 +205,7 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterD
 		d.Status = model.DeviceOnline
 	}
 
-	if err := s.store.CreateDevice(ctx, d); err != nil {
+	if err := s.store.CreateDevice(storeCtx, d); err != nil {
 		return nil, fmt.Errorf("failed to register device: %w", err)
 	}
 
@@ -206,7 +221,9 @@ func (s *DeviceService) SearchDevices(ctx context.Context, keyword string, page,
 		pageSize = 20
 	}
 
-	return s.store.SearchDevices(ctx, keyword, page, pageSize)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	return s.store.SearchDevices(storeCtx, keyword, page, pageSize)
 }
 
 // BatchCreateDevices 批量创建设备
@@ -236,5 +253,7 @@ func (s *DeviceService) BatchCreateDevices(ctx context.Context, req *model.Batch
 
 // GetDeviceStatusStats 获取设备状态统计
 func (s *DeviceService) GetDeviceStatusStats(ctx context.Context) (map[model.DeviceStatus]int, error) {
-	return s.store.CountDevicesByStatus(ctx)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	return s.store.CountDevicesByStatus(storeCtx)
 }

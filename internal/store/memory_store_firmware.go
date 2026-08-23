@@ -12,7 +12,8 @@ import (
 // ================ FirmwareStore 实现 ================
 
 // CreateFirmware 创建固件
-func (s *MemoryStore) CreateFirmware(_ context.Context, f *model.Firmware) error {
+func (s *MemoryStore) CreateFirmware(ctx context.Context, f *model.Firmware) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -30,7 +31,8 @@ func (s *MemoryStore) CreateFirmware(_ context.Context, f *model.Firmware) error
 }
 
 // GetFirmwareByID 根据ID获取固件
-func (s *MemoryStore) GetFirmwareByID(_ context.Context, id model.ID) (*model.Firmware, error) {
+func (s *MemoryStore) GetFirmwareByID(ctx context.Context, id model.ID) (*model.Firmware, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -42,7 +44,8 @@ func (s *MemoryStore) GetFirmwareByID(_ context.Context, id model.ID) (*model.Fi
 }
 
 // GetFirmwareByVersion 根据型号和版本获取固件
-func (s *MemoryStore) GetFirmwareByVersion(_ context.Context, modelID model.ID, version string) (*model.Firmware, error) {
+func (s *MemoryStore) GetFirmwareByVersion(ctx context.Context, modelID model.ID, version string) (*model.Firmware, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -55,7 +58,8 @@ func (s *MemoryStore) GetFirmwareByVersion(_ context.Context, modelID model.ID, 
 }
 
 // GetLatestFirmware 获取型号的最新固件
-func (s *MemoryStore) GetLatestFirmware(_ context.Context, modelID model.ID) (*model.Firmware, error) {
+func (s *MemoryStore) GetLatestFirmware(ctx context.Context, modelID model.ID) (*model.Firmware, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -75,7 +79,8 @@ func (s *MemoryStore) GetLatestFirmware(_ context.Context, modelID model.ID) (*m
 }
 
 // ListFirmwares 列出固件
-func (s *MemoryStore) ListFirmwares(_ context.Context, page, pageSize int, modelID model.ID) ([]*model.Firmware, int64, error) {
+func (s *MemoryStore) ListFirmwares(ctx context.Context, page, pageSize int, modelID model.ID) ([]*model.Firmware, int64, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -109,7 +114,8 @@ func (s *MemoryStore) ListFirmwares(_ context.Context, page, pageSize int, model
 }
 
 // ListFirmwaresByModel 根据型号列出固件
-func (s *MemoryStore) ListFirmwaresByModel(_ context.Context, modelID model.ID) ([]*model.Firmware, error) {
+func (s *MemoryStore) ListFirmwaresByModel(ctx context.Context, modelID model.ID) ([]*model.Firmware, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -128,7 +134,8 @@ func (s *MemoryStore) ListFirmwaresByModel(_ context.Context, modelID model.ID) 
 }
 
 // UpdateFirmware 更新固件
-func (s *MemoryStore) UpdateFirmware(_ context.Context, f *model.Firmware) error {
+func (s *MemoryStore) UpdateFirmware(ctx context.Context, f *model.Firmware) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -142,7 +149,8 @@ func (s *MemoryStore) UpdateFirmware(_ context.Context, f *model.Firmware) error
 }
 
 // SetFirmwareActive 设置固件活跃状态
-func (s *MemoryStore) SetFirmwareActive(_ context.Context, id model.ID, active bool) error {
+func (s *MemoryStore) SetFirmwareActive(ctx context.Context, id model.ID, active bool) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -156,7 +164,8 @@ func (s *MemoryStore) SetFirmwareActive(_ context.Context, id model.ID, active b
 }
 
 // IncrementFirmwareDownload 增加下载计数
-func (s *MemoryStore) IncrementFirmwareDownload(_ context.Context, id model.ID) error {
+func (s *MemoryStore) IncrementFirmwareDownload(ctx context.Context, id model.ID) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -170,7 +179,8 @@ func (s *MemoryStore) IncrementFirmwareDownload(_ context.Context, id model.ID) 
 }
 
 // DeleteFirmware 删除固件
-func (s *MemoryStore) DeleteFirmware(_ context.Context, id model.ID) error {
+func (s *MemoryStore) DeleteFirmware(ctx context.Context, id model.ID) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -187,7 +197,8 @@ func (s *MemoryStore) DeleteFirmware(_ context.Context, id model.ID) error {
 }
 
 // GetAllFirmwares 获取所有固件
-func (s *MemoryStore) GetAllFirmwares(_ context.Context) ([]*model.Firmware, error) {
+func (s *MemoryStore) GetAllFirmwares(ctx context.Context) ([]*model.Firmware, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -199,7 +210,8 @@ func (s *MemoryStore) GetAllFirmwares(_ context.Context) ([]*model.Firmware, err
 }
 
 // CountFirmwaresByModel 按型号统计固件数量
-func (s *MemoryStore) CountFirmwaresByModel(_ context.Context) (map[model.ID]int, error) {
+func (s *MemoryStore) CountFirmwaresByModel(ctx context.Context) (map[model.ID]int, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

@@ -35,8 +35,11 @@ func NewFirmwareService(s store.FirmwareStore, ms store.DeviceModelStore, cfg *c
 func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadFirmwareRequest, fileData []byte, originalFilename string) (*model.Firmware, error) {
 	logger.Info("Uploading firmware", "model_id", req.ModelID, "version", req.Version)
 
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+
 	// 检查型号是否存在
-	m, err := s.modelStore.GetModelByID(ctx, req.ModelID)
+	m, err := s.modelStore.GetModelByID(storeCtx, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
@@ -61,7 +64,7 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 	}
 
 	// 检查版本是否已存在
-	existing, _ := s.store.GetFirmwareByVersion(ctx, req.ModelID, req.Version)
+	existing, _ := s.store.GetFirmwareByVersion(storeCtx, req.ModelID, req.Version)
 	if existing != nil {
 		return nil, fmt.Errorf("firmware version '%s' already exists for model '%s'", req.Version, m.Name)
 	}
@@ -93,7 +96,7 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 		return nil, err
 	}
 
-	if err := s.store.CreateFirmware(ctx, fw); err != nil {
+	if err := s.store.CreateFirmware(storeCtx, fw); err != nil {
 		// 清理已保存的文件
 		os.Remove(filePath)
 		return nil, fmt.Errorf("failed to create firmware record: %w", err)
@@ -105,7 +108,9 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 
 // GetFirmware 获取固件
 func (s *FirmwareService) GetFirmware(ctx context.Context, id model.ID) (*model.Firmware, error) {
-	fw, err := s.store.GetFirmwareByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	fw, err := s.store.GetFirmwareByID(storeCtx, id)
 	if err != nil {
 		return nil, fmt.Errorf("firmware not found: %w", err)
 	}
@@ -124,17 +129,23 @@ func (s *FirmwareService) ListFirmwares(ctx context.Context, page, pageSize int,
 		pageSize = 100
 	}
 
-	return s.store.ListFirmwares(ctx, page, pageSize, modelID)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	return s.store.ListFirmwares(storeCtx, page, pageSize, modelID)
 }
 
 // GetLatestFirmware 获取最新固件
 func (s *FirmwareService) GetLatestFirmware(ctx context.Context, modelID model.ID) (*model.Firmware, error) {
-	return s.store.GetLatestFirmware(ctx, modelID)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	return s.store.GetLatestFirmware(storeCtx, modelID)
 }
 
 // UpdateFirmware 更新固件
 func (s *FirmwareService) UpdateFirmware(ctx context.Context, id model.ID, req *model.UpdateFirmwareRequest) (*model.Firmware, error) {
-	fw, err := s.store.GetFirmwareByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	fw, err := s.store.GetFirmwareByID(storeCtx, id)
 	if err != nil {
 		return nil, fmt.Errorf("firmware not found: %w", err)
 	}
@@ -146,7 +157,7 @@ func (s *FirmwareService) UpdateFirmware(ctx context.Context, id model.ID, req *
 		fw.IsActive = *req.IsActive
 	}
 
-	if err := s.store.UpdateFirmware(ctx, fw); err != nil {
+	if err := s.store.UpdateFirmware(storeCtx, fw); err != nil {
 		return nil, fmt.Errorf("failed to update firmware: %w", err)
 	}
 
@@ -156,7 +167,9 @@ func (s *FirmwareService) UpdateFirmware(ctx context.Context, id model.ID, req *
 
 // DeleteFirmware 删除固件
 func (s *FirmwareService) DeleteFirmware(ctx context.Context, id model.ID) error {
-	fw, err := s.store.GetFirmwareByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	fw, err := s.store.GetFirmwareByID(storeCtx, id)
 	if err != nil {
 		return fmt.Errorf("firmware not found: %w", err)
 	}
@@ -169,7 +182,7 @@ func (s *FirmwareService) DeleteFirmware(ctx context.Context, id model.ID) error
 		os.Remove(fw.FilePath)
 	}
 
-	if err := s.store.DeleteFirmware(ctx, id); err != nil {
+	if err := s.store.DeleteFirmware(storeCtx, id); err != nil {
 		return fmt.Errorf("failed to delete firmware: %w", err)
 	}
 
@@ -179,13 +192,15 @@ func (s *FirmwareService) DeleteFirmware(ctx context.Context, id model.ID) error
 
 // GetFirmwareFile 获取固件文件内容（用于下载）
 func (s *FirmwareService) GetFirmwareFile(ctx context.Context, id model.ID) ([]byte, *model.Firmware, error) {
-	fw, err := s.store.GetFirmwareByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	fw, err := s.store.GetFirmwareByID(storeCtx, id)
 	if err != nil {
 		return nil, nil, fmt.Errorf("firmware not found: %w", err)
 	}
 
 	// 增加下载计数
-	_ = s.store.IncrementFirmwareDownload(ctx, id)
+	_ = s.store.IncrementFirmwareDownload(storeCtx, id)
 
 	// 读取文件
 	data, err := fileutil.ReadFile(fw.FilePath)
@@ -198,7 +213,9 @@ func (s *FirmwareService) GetFirmwareFile(ctx context.Context, id model.ID) ([]b
 
 // ValidateFirmwareMD5 验证固件 MD5
 func (s *FirmwareService) ValidateFirmwareMD5(ctx context.Context, id model.ID, data []byte) (bool, error) {
-	fw, err := s.store.GetFirmwareByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	fw, err := s.store.GetFirmwareByID(storeCtx, id)
 	if err != nil {
 		return false, err
 	}
@@ -209,5 +226,7 @@ func (s *FirmwareService) ValidateFirmwareMD5(ctx context.Context, id model.ID, 
 
 // GetAllFirmwares 获取所有固件
 func (s *FirmwareService) GetAllFirmwares(ctx context.Context) ([]*model.Firmware, error) {
-	return s.store.GetAllFirmwares(ctx)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	return s.store.GetAllFirmwares(storeCtx)
 }

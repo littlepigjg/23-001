@@ -12,7 +12,8 @@ import (
 // ================ RecordStore 实现 ================
 
 // CreateRecord 创建记录
-func (s *MemoryStore) CreateRecord(_ context.Context, r *model.UpgradeRecord) error {
+func (s *MemoryStore) CreateRecord(ctx context.Context, r *model.UpgradeRecord) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -24,7 +25,8 @@ func (s *MemoryStore) CreateRecord(_ context.Context, r *model.UpgradeRecord) er
 }
 
 // GetRecordByID 根据ID获取记录
-func (s *MemoryStore) GetRecordByID(_ context.Context, id model.ID) (*model.UpgradeRecord, error) {
+func (s *MemoryStore) GetRecordByID(ctx context.Context, id model.ID) (*model.UpgradeRecord, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -36,7 +38,8 @@ func (s *MemoryStore) GetRecordByID(_ context.Context, id model.ID) (*model.Upgr
 }
 
 // ListRecords 列出记录
-func (s *MemoryStore) ListRecords(_ context.Context, page, pageSize int, status model.UpgradeStatus) ([]*model.UpgradeRecord, int64, error) {
+func (s *MemoryStore) ListRecords(ctx context.Context, page, pageSize int, status model.UpgradeStatus) ([]*model.UpgradeRecord, int64, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -70,7 +73,8 @@ func (s *MemoryStore) ListRecords(_ context.Context, page, pageSize int, status 
 }
 
 // ListRecordsByDevice 根据设备列出记录
-func (s *MemoryStore) ListRecordsByDevice(_ context.Context, deviceID string) ([]*model.UpgradeRecord, error) {
+func (s *MemoryStore) ListRecordsByDevice(ctx context.Context, deviceID string) ([]*model.UpgradeRecord, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -89,7 +93,8 @@ func (s *MemoryStore) ListRecordsByDevice(_ context.Context, deviceID string) ([
 }
 
 // ListRecordsByTask 根据任务列出记录
-func (s *MemoryStore) ListRecordsByTask(_ context.Context, taskID model.ID) ([]*model.UpgradeRecord, error) {
+func (s *MemoryStore) ListRecordsByTask(ctx context.Context, taskID model.ID) ([]*model.UpgradeRecord, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -103,7 +108,8 @@ func (s *MemoryStore) ListRecordsByTask(_ context.Context, taskID model.ID) ([]*
 }
 
 // UpdateRecord 更新记录
-func (s *MemoryStore) UpdateRecord(_ context.Context, r *model.UpgradeRecord) error {
+func (s *MemoryStore) UpdateRecord(ctx context.Context, r *model.UpgradeRecord) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -116,7 +122,8 @@ func (s *MemoryStore) UpdateRecord(_ context.Context, r *model.UpgradeRecord) er
 }
 
 // UpdateRecordStatus 更新记录状态
-func (s *MemoryStore) UpdateRecordStatus(_ context.Context, id model.ID, status model.UpgradeStatus, progress int, errorMsg string) error {
+func (s *MemoryStore) UpdateRecordStatus(ctx context.Context, id model.ID, status model.UpgradeStatus, progress int, errorMsg string) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -140,7 +147,8 @@ func (s *MemoryStore) UpdateRecordStatus(_ context.Context, id model.ID, status 
 }
 
 // DeleteRecord 删除记录
-func (s *MemoryStore) DeleteRecord(_ context.Context, id model.ID) error {
+func (s *MemoryStore) DeleteRecord(ctx context.Context, id model.ID) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -153,7 +161,8 @@ func (s *MemoryStore) DeleteRecord(_ context.Context, id model.ID) error {
 }
 
 // GetAllRecords 获取所有记录
-func (s *MemoryStore) GetAllRecords(_ context.Context) ([]*model.UpgradeRecord, error) {
+func (s *MemoryStore) GetAllRecords(ctx context.Context) ([]*model.UpgradeRecord, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -165,7 +174,8 @@ func (s *MemoryStore) GetAllRecords(_ context.Context) ([]*model.UpgradeRecord, 
 }
 
 // GetRecentRecords 获取最近记录
-func (s *MemoryStore) GetRecentRecords(_ context.Context, limit int) ([]*model.UpgradeRecord, error) {
+func (s *MemoryStore) GetRecentRecords(ctx context.Context, limit int) ([]*model.UpgradeRecord, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -185,7 +195,8 @@ func (s *MemoryStore) GetRecentRecords(_ context.Context, limit int) ([]*model.U
 }
 
 // CountRecordsByStatus 按状态统计记录
-func (s *MemoryStore) CountRecordsByStatus(_ context.Context) (map[model.UpgradeStatus]int, error) {
+func (s *MemoryStore) CountRecordsByStatus(ctx context.Context) (map[model.UpgradeStatus]int, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -197,7 +208,8 @@ func (s *MemoryStore) CountRecordsByStatus(_ context.Context) (map[model.Upgrade
 }
 
 // CountTodayRecords 统计今日记录
-func (s *MemoryStore) CountTodayRecords(_ context.Context) (int, error) {
+func (s *MemoryStore) CountTodayRecords(ctx context.Context) (int, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

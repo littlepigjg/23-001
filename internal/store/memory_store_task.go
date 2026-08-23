@@ -12,7 +12,8 @@ import (
 // ================ TaskStore 实现 ================
 
 // CreateTask 创建任务
-func (s *MemoryStore) CreateTask(_ context.Context, t *model.UpgradeTask) error {
+func (s *MemoryStore) CreateTask(ctx context.Context, t *model.UpgradeTask) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -24,7 +25,8 @@ func (s *MemoryStore) CreateTask(_ context.Context, t *model.UpgradeTask) error 
 }
 
 // GetTaskByID 根据ID获取任务
-func (s *MemoryStore) GetTaskByID(_ context.Context, id model.ID) (*model.UpgradeTask, error) {
+func (s *MemoryStore) GetTaskByID(ctx context.Context, id model.ID) (*model.UpgradeTask, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -36,7 +38,8 @@ func (s *MemoryStore) GetTaskByID(_ context.Context, id model.ID) (*model.Upgrad
 }
 
 // ListTasks 列出任务
-func (s *MemoryStore) ListTasks(_ context.Context, page, pageSize int, status model.TaskStatus) ([]*model.UpgradeTask, int64, error) {
+func (s *MemoryStore) ListTasks(ctx context.Context, page, pageSize int, status model.TaskStatus) ([]*model.UpgradeTask, int64, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -70,7 +73,8 @@ func (s *MemoryStore) ListTasks(_ context.Context, page, pageSize int, status mo
 }
 
 // ListActiveTasks 列出活跃任务
-func (s *MemoryStore) ListActiveTasks(_ context.Context) ([]*model.UpgradeTask, error) {
+func (s *MemoryStore) ListActiveTasks(ctx context.Context) ([]*model.UpgradeTask, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -84,7 +88,8 @@ func (s *MemoryStore) ListActiveTasks(_ context.Context) ([]*model.UpgradeTask, 
 }
 
 // ListTasksByModel 根据型号列出任务
-func (s *MemoryStore) ListTasksByModel(_ context.Context, modelID model.ID) ([]*model.UpgradeTask, error) {
+func (s *MemoryStore) ListTasksByModel(ctx context.Context, modelID model.ID) ([]*model.UpgradeTask, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -98,7 +103,8 @@ func (s *MemoryStore) ListTasksByModel(_ context.Context, modelID model.ID) ([]*
 }
 
 // UpdateTask 更新任务
-func (s *MemoryStore) UpdateTask(_ context.Context, t *model.UpgradeTask) error {
+func (s *MemoryStore) UpdateTask(ctx context.Context, t *model.UpgradeTask) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -112,7 +118,8 @@ func (s *MemoryStore) UpdateTask(_ context.Context, t *model.UpgradeTask) error 
 }
 
 // UpdateTaskStatus 更新任务状态
-func (s *MemoryStore) UpdateTaskStatus(_ context.Context, id model.ID, status model.TaskStatus) error {
+func (s *MemoryStore) UpdateTaskStatus(ctx context.Context, id model.ID, status model.TaskStatus) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -137,7 +144,8 @@ func (s *MemoryStore) UpdateTaskStatus(_ context.Context, id model.ID, status mo
 }
 
 // UpdateTaskProgress 更新任务进度
-func (s *MemoryStore) UpdateTaskProgress(_ context.Context, id model.ID, successCount, failCount, pendingCount int) error {
+func (s *MemoryStore) UpdateTaskProgress(ctx context.Context, id model.ID, successCount, failCount, pendingCount int) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -156,7 +164,8 @@ func (s *MemoryStore) UpdateTaskProgress(_ context.Context, id model.ID, success
 }
 
 // DeleteTask 删除任务
-func (s *MemoryStore) DeleteTask(_ context.Context, id model.ID) error {
+func (s *MemoryStore) DeleteTask(ctx context.Context, id model.ID) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -169,7 +178,8 @@ func (s *MemoryStore) DeleteTask(_ context.Context, id model.ID) error {
 }
 
 // GetAllTasks 获取所有任务
-func (s *MemoryStore) GetAllTasks(_ context.Context) ([]*model.UpgradeTask, error) {
+func (s *MemoryStore) GetAllTasks(ctx context.Context) ([]*model.UpgradeTask, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -181,7 +191,8 @@ func (s *MemoryStore) GetAllTasks(_ context.Context) ([]*model.UpgradeTask, erro
 }
 
 // SearchTasks 搜索任务
-func (s *MemoryStore) SearchTasks(_ context.Context, keyword string, page, pageSize int) ([]*model.UpgradeTask, int64, error) {
+func (s *MemoryStore) SearchTasks(ctx context.Context, keyword string, page, pageSize int) ([]*model.UpgradeTask, int64, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -216,7 +227,8 @@ func (s *MemoryStore) SearchTasks(_ context.Context, keyword string, page, pageS
 }
 
 // GetRecentTasks 获取最近任务
-func (s *MemoryStore) GetRecentTasks(_ context.Context, limit int) ([]*model.UpgradeTask, error) {
+func (s *MemoryStore) GetRecentTasks(ctx context.Context, limit int) ([]*model.UpgradeTask, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

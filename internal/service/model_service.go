@@ -29,8 +29,11 @@ func NewDeviceModelService(s store.DeviceModelStore, cfg *config.Config) *Device
 func (s *DeviceModelService) CreateModel(ctx context.Context, req *model.CreateModelRequest) (*model.DeviceModel, error) {
 	logger.Info("Creating device model", "name", req.Name, "manufacturer", req.Manufacturer)
 
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+
 	// 检查名称是否已存在
-	existing, _ := s.store.GetModelByName(ctx, req.Name)
+	existing, _ := s.store.GetModelByName(storeCtx, req.Name)
 	if existing != nil {
 		return nil, fmt.Errorf("model with name '%s' already exists", req.Name)
 	}
@@ -40,7 +43,7 @@ func (s *DeviceModelService) CreateModel(ctx context.Context, req *model.CreateM
 		return nil, err
 	}
 
-	if err := s.store.CreateModel(ctx, m); err != nil {
+	if err := s.store.CreateModel(storeCtx, m); err != nil {
 		return nil, fmt.Errorf("failed to create model: %w", err)
 	}
 
@@ -50,7 +53,9 @@ func (s *DeviceModelService) CreateModel(ctx context.Context, req *model.CreateM
 
 // GetModel 根据ID获取设备型号
 func (s *DeviceModelService) GetModel(ctx context.Context, id model.ID) (*model.DeviceModel, error) {
-	m, err := s.store.GetModelByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	m, err := s.store.GetModelByID(storeCtx, id)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
@@ -69,14 +74,16 @@ func (s *DeviceModelService) ListModels(ctx context.Context, page, pageSize int)
 		pageSize = 100
 	}
 
-	models, total, err := s.store.ListModels(ctx, page, pageSize)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	models, total, err := s.store.ListModels(storeCtx, page, pageSize)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list models: %w", err)
 	}
 
 	// 填充设备数量
 	for _, m := range models {
-		count, err := s.store.CountModelDevices(ctx, m.ID)
+		count, err := s.store.CountModelDevices(storeCtx, m.ID)
 		if err == nil {
 			m.DeviceCount = count
 		}
@@ -87,7 +94,9 @@ func (s *DeviceModelService) ListModels(ctx context.Context, page, pageSize int)
 
 // UpdateModel 更新设备型号
 func (s *DeviceModelService) UpdateModel(ctx context.Context, id model.ID, req *model.UpdateModelRequest) (*model.DeviceModel, error) {
-	m, err := s.store.GetModelByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	m, err := s.store.GetModelByID(storeCtx, id)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
@@ -112,7 +121,7 @@ func (s *DeviceModelService) UpdateModel(ctx context.Context, id model.ID, req *
 		return nil, err
 	}
 
-	if err := s.store.UpdateModel(ctx, m); err != nil {
+	if err := s.store.UpdateModel(storeCtx, m); err != nil {
 		return nil, fmt.Errorf("failed to update model: %w", err)
 	}
 
@@ -122,18 +131,20 @@ func (s *DeviceModelService) UpdateModel(ctx context.Context, id model.ID, req *
 
 // DeleteModel 删除设备型号
 func (s *DeviceModelService) DeleteModel(ctx context.Context, id model.ID) error {
-	m, err := s.store.GetModelByID(ctx, id)
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	m, err := s.store.GetModelByID(storeCtx, id)
 	if err != nil {
 		return fmt.Errorf("model not found: %w", err)
 	}
 
 	// 检查是否有设备引用
-	count, _ := s.store.CountModelDevices(ctx, id)
+	count, _ := s.store.CountModelDevices(storeCtx, id)
 	if count > 0 {
 		return fmt.Errorf("cannot delete model '%s': still has %d devices", m.Name, count)
 	}
 
-	if err := s.store.DeleteModel(ctx, id); err != nil {
+	if err := s.store.DeleteModel(storeCtx, id); err != nil {
 		return fmt.Errorf("failed to delete model: %w", err)
 	}
 
@@ -143,7 +154,9 @@ func (s *DeviceModelService) DeleteModel(ctx context.Context, id model.ID) error
 
 // SetActive 设置型号活跃状态
 func (s *DeviceModelService) SetActive(ctx context.Context, id model.ID, active bool) error {
-	if err := s.store.SetModelActive(ctx, id, active); err != nil {
+	// 缺陷：忽略传入的ctx，使用context.Background()代替
+	storeCtx := context.Background()
+	if err := s.store.SetModelActive(storeCtx, id, active); err != nil {
 		return fmt.Errorf("failed to set model active: %w", err)
 	}
 	return nil

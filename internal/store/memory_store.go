@@ -37,6 +37,9 @@ type MemoryStore struct {
 
 	// 升级记录
 	records map[model.ID]*model.UpgradeRecord
+
+	// 存储访问延迟（用于模拟I/O延迟场景）
+	storageLatency time.Duration
 }
 
 // NewMemoryStore 创建内存存储实例
@@ -73,7 +76,8 @@ func (s *MemoryStore) Close() error {
 // ================ DeviceModelStore 实现 ================
 
 // CreateModel 创建设备型号
-func (s *MemoryStore) CreateModel(_ context.Context, m *model.DeviceModel) error {
+func (s *MemoryStore) CreateModel(ctx context.Context, m *model.DeviceModel) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -91,7 +95,8 @@ func (s *MemoryStore) CreateModel(_ context.Context, m *model.DeviceModel) error
 }
 
 // GetModelByID 根据ID获取设备型号
-func (s *MemoryStore) GetModelByID(_ context.Context, id model.ID) (*model.DeviceModel, error) {
+func (s *MemoryStore) GetModelByID(ctx context.Context, id model.ID) (*model.DeviceModel, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -103,7 +108,8 @@ func (s *MemoryStore) GetModelByID(_ context.Context, id model.ID) (*model.Devic
 }
 
 // GetModelByName 根据名称获取设备型号
-func (s *MemoryStore) GetModelByName(_ context.Context, name string) (*model.DeviceModel, error) {
+func (s *MemoryStore) GetModelByName(ctx context.Context, name string) (*model.DeviceModel, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -115,7 +121,8 @@ func (s *MemoryStore) GetModelByName(_ context.Context, name string) (*model.Dev
 }
 
 // ListModels 列出设备型号
-func (s *MemoryStore) ListModels(_ context.Context, page, pageSize int) ([]*model.DeviceModel, int64, error) {
+func (s *MemoryStore) ListModels(ctx context.Context, page, pageSize int) ([]*model.DeviceModel, int64, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -149,7 +156,8 @@ func (s *MemoryStore) ListModels(_ context.Context, page, pageSize int) ([]*mode
 }
 
 // ListModelsByManufacturer 根据厂商列出设备型号
-func (s *MemoryStore) ListModelsByManufacturer(_ context.Context, manufacturer string) ([]*model.DeviceModel, error) {
+func (s *MemoryStore) ListModelsByManufacturer(ctx context.Context, manufacturer string) ([]*model.DeviceModel, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -163,7 +171,8 @@ func (s *MemoryStore) ListModelsByManufacturer(_ context.Context, manufacturer s
 }
 
 // UpdateModel 更新设备型号
-func (s *MemoryStore) UpdateModel(_ context.Context, m *model.DeviceModel) error {
+func (s *MemoryStore) UpdateModel(ctx context.Context, m *model.DeviceModel) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -195,7 +204,8 @@ func (s *MemoryStore) UpdateModel(_ context.Context, m *model.DeviceModel) error
 }
 
 // DeleteModel 删除设备型号
-func (s *MemoryStore) DeleteModel(_ context.Context, id model.ID) error {
+func (s *MemoryStore) DeleteModel(ctx context.Context, id model.ID) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -219,6 +229,7 @@ func (s *MemoryStore) DeleteModel(_ context.Context, id model.ID) error {
 
 // SetModelActive 设置型号活跃状态
 func (s *MemoryStore) SetModelActive(ctx context.Context, id model.ID, active bool) error {
+	s.simulateLatency(ctx)
 	m, err := s.GetModelByID(ctx, id)
 	if err != nil {
 		return err
@@ -228,7 +239,8 @@ func (s *MemoryStore) SetModelActive(ctx context.Context, id model.ID, active bo
 }
 
 // CountModelDevices 统计型号下的设备数量
-func (s *MemoryStore) CountModelDevices(_ context.Context, modelID model.ID) (int, error) {
+func (s *MemoryStore) CountModelDevices(ctx context.Context, modelID model.ID) (int, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -244,7 +256,8 @@ func (s *MemoryStore) CountModelDevices(_ context.Context, modelID model.ID) (in
 // ================ DeviceStore 实现 ================
 
 // CreateDevice 创建设备
-func (s *MemoryStore) CreateDevice(_ context.Context, d *model.Device) error {
+func (s *MemoryStore) CreateDevice(ctx context.Context, d *model.Device) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -267,7 +280,8 @@ func (s *MemoryStore) CreateDevice(_ context.Context, d *model.Device) error {
 }
 
 // GetDeviceByID 根据ID获取设备
-func (s *MemoryStore) GetDeviceByID(_ context.Context, id model.ID) (*model.Device, error) {
+func (s *MemoryStore) GetDeviceByID(ctx context.Context, id model.ID) (*model.Device, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -279,7 +293,8 @@ func (s *MemoryStore) GetDeviceByID(_ context.Context, id model.ID) (*model.Devi
 }
 
 // GetDeviceByDeviceID 根据设备ID获取设备
-func (s *MemoryStore) GetDeviceByDeviceID(_ context.Context, deviceID string) (*model.Device, error) {
+func (s *MemoryStore) GetDeviceByDeviceID(ctx context.Context, deviceID string) (*model.Device, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -291,7 +306,8 @@ func (s *MemoryStore) GetDeviceByDeviceID(_ context.Context, deviceID string) (*
 }
 
 // ListDevices 列出设备
-func (s *MemoryStore) ListDevices(_ context.Context, page, pageSize int, modelID model.ID, status model.DeviceStatus) ([]*model.Device, int64, error) {
+func (s *MemoryStore) ListDevices(ctx context.Context, page, pageSize int, modelID model.ID, status model.DeviceStatus) ([]*model.Device, int64, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -329,7 +345,8 @@ func (s *MemoryStore) ListDevices(_ context.Context, page, pageSize int, modelID
 }
 
 // ListDevicesByModel 根据型号列出设备
-func (s *MemoryStore) ListDevicesByModel(_ context.Context, modelID model.ID) ([]*model.Device, error) {
+func (s *MemoryStore) ListDevicesByModel(ctx context.Context, modelID model.ID) ([]*model.Device, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -343,7 +360,8 @@ func (s *MemoryStore) ListDevicesByModel(_ context.Context, modelID model.ID) ([
 }
 
 // ListDevicesByStatus 根据状态列出设备
-func (s *MemoryStore) ListDevicesByStatus(_ context.Context, status model.DeviceStatus) ([]*model.Device, error) {
+func (s *MemoryStore) ListDevicesByStatus(ctx context.Context, status model.DeviceStatus) ([]*model.Device, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -357,7 +375,8 @@ func (s *MemoryStore) ListDevicesByStatus(_ context.Context, status model.Device
 }
 
 // ListOnlineDevices 列出在线设备
-func (s *MemoryStore) ListOnlineDevices(_ context.Context) ([]*model.Device, error) {
+func (s *MemoryStore) ListOnlineDevices(ctx context.Context) ([]*model.Device, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -371,7 +390,8 @@ func (s *MemoryStore) ListOnlineDevices(_ context.Context) ([]*model.Device, err
 }
 
 // UpdateDevice 更新设备
-func (s *MemoryStore) UpdateDevice(_ context.Context, d *model.Device) error {
+func (s *MemoryStore) UpdateDevice(ctx context.Context, d *model.Device) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -384,7 +404,8 @@ func (s *MemoryStore) UpdateDevice(_ context.Context, d *model.Device) error {
 }
 
 // UpdateDeviceStatus 更新设备状态
-func (s *MemoryStore) UpdateDeviceStatus(_ context.Context, id model.ID, status model.DeviceStatus) error {
+func (s *MemoryStore) UpdateDeviceStatus(ctx context.Context, id model.ID, status model.DeviceStatus) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -399,7 +420,8 @@ func (s *MemoryStore) UpdateDeviceStatus(_ context.Context, id model.ID, status 
 }
 
 // UpdateDeviceLastSeen 更新设备最后心跳时间
-func (s *MemoryStore) UpdateDeviceLastSeen(_ context.Context, id model.ID) error {
+func (s *MemoryStore) UpdateDeviceLastSeen(ctx context.Context, id model.ID) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -413,7 +435,8 @@ func (s *MemoryStore) UpdateDeviceLastSeen(_ context.Context, id model.ID) error
 }
 
 // UpdateDeviceProgress 更新升级进度
-func (s *MemoryStore) UpdateDeviceProgress(_ context.Context, id model.ID, progress int) error {
+func (s *MemoryStore) UpdateDeviceProgress(ctx context.Context, id model.ID, progress int) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -431,7 +454,8 @@ func (s *MemoryStore) UpdateDeviceProgress(_ context.Context, id model.ID, progr
 }
 
 // DeleteDevice 删除设备
-func (s *MemoryStore) DeleteDevice(_ context.Context, id model.ID) error {
+func (s *MemoryStore) DeleteDevice(ctx context.Context, id model.ID) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -455,6 +479,7 @@ func (s *MemoryStore) DeleteDevice(_ context.Context, id model.ID) error {
 
 // BatchCreateDevices 批量创建设备
 func (s *MemoryStore) BatchCreateDevices(ctx context.Context, devices []*model.Device) error {
+	s.simulateLatency(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -474,7 +499,8 @@ func (s *MemoryStore) BatchCreateDevices(ctx context.Context, devices []*model.D
 }
 
 // CountDevicesByStatus 按状态统计设备
-func (s *MemoryStore) CountDevicesByStatus(_ context.Context) (map[model.DeviceStatus]int, error) {
+func (s *MemoryStore) CountDevicesByStatus(ctx context.Context) (map[model.DeviceStatus]int, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -486,7 +512,8 @@ func (s *MemoryStore) CountDevicesByStatus(_ context.Context) (map[model.DeviceS
 }
 
 // SearchDevices 搜索设备
-func (s *MemoryStore) SearchDevices(_ context.Context, keyword string, page, pageSize int) ([]*model.Device, int64, error) {
+func (s *MemoryStore) SearchDevices(ctx context.Context, keyword string, page, pageSize int) ([]*model.Device, int64, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -522,7 +549,8 @@ func (s *MemoryStore) SearchDevices(_ context.Context, keyword string, page, pag
 }
 
 // GetAllDevices 分页获取所有设备
-func (s *MemoryStore) GetAllDevices(_ context.Context, page, pageSize int) ([]*model.Device, int64, error) {
+func (s *MemoryStore) GetAllDevices(ctx context.Context, page, pageSize int) ([]*model.Device, int64, error) {
+	s.simulateLatency(ctx)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -550,6 +578,25 @@ func (s *MemoryStore) GetAllDevices(_ context.Context, page, pageSize int) ([]*m
 	}
 
 	return devices[start:end], total, nil
+}
+
+// SetStorageLatency 设置存储访问延迟（用于模拟I/O延迟场景）
+func (s *MemoryStore) SetStorageLatency(d time.Duration) {
+	s.storageLatency = d
+}
+
+// GetStorageLatency 获取存储访问延迟设置
+func (s *MemoryStore) GetStorageLatency() time.Duration {
+	return s.storageLatency
+}
+
+// simulateLatency 模拟存储访问延迟
+// 缺陷：此方法忽略context的取消/超时信号，即使上下文已被取消，仍会完整执行sleep
+func (s *MemoryStore) simulateLatency(_ context.Context) {
+	if s.storageLatency <= 0 {
+		return
+	}
+	time.Sleep(s.storageLatency)
 }
 
 // toLower 转换字符串为小写
