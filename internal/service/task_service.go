@@ -94,6 +94,9 @@ func (s *TaskService) CreateTask(ctx context.Context, req *model.CreateTaskReque
 
 // GetTask 获取任务
 func (s *TaskService) GetTask(ctx context.Context, id model.ID) (*model.UpgradeTask, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	task, err := s.store.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("task not found: %w", err)
@@ -103,6 +106,9 @@ func (s *TaskService) GetTask(ctx context.Context, id model.ID) (*model.UpgradeT
 
 // ListTasks 列出任务
 func (s *TaskService) ListTasks(ctx context.Context, page, pageSize int, status model.TaskStatus) ([]*model.UpgradeTask, int64, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, 0, err
+	}
 	if page < 1 {
 		page = 1
 	}
@@ -357,11 +363,17 @@ func (s *TaskService) GetTaskProgress(ctx context.Context, id model.ID) (*model.
 
 // GetActiveTasks 获取活跃任务
 func (s *TaskService) GetActiveTasks(ctx context.Context) ([]*model.UpgradeTask, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	return s.store.ListActiveTasks(ctx)
 }
 
 // SearchTasks 搜索任务
 func (s *TaskService) SearchTasks(ctx context.Context, keyword string, page, pageSize int) ([]*model.UpgradeTask, int64, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, 0, err
+	}
 	return s.store.SearchTasks(ctx, keyword, page, pageSize)
 }
 

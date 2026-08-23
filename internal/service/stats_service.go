@@ -37,12 +37,18 @@ func NewStatsService(
 
 // GetDashboard 获取仪表盘数据
 func (s *StatsService) GetDashboard(ctx context.Context) (*model.DashboardResponse, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	dashboard := &model.DashboardResponse{}
 
-	// 设备统计
 	deviceStatus, err := s.deviceStore.CountDevicesByStatus(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count devices: %w", err)
+	}
+
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
 	}
 
 	for status, count := range deviceStatus {
@@ -55,61 +61,90 @@ func (s *StatsService) GetDashboard(ctx context.Context) (*model.DashboardRespon
 		dashboard.TotalDevices += count
 	}
 
-	// 型号数量
 	allModels, _, err := s.modelStore.ListModels(ctx, 1, 1)
 	if err == nil {
-		// 获取实际数量
 		_, total, _ := s.modelStore.ListModels(ctx, 1, 10000)
 		dashboard.TotalModels = int(total)
 		_ = allModels
 	}
 
-	// 固件数量
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	allFirmwares, err := s.firmwareStore.GetAllFirmwares(ctx)
 	if err == nil {
 		dashboard.TotalFirmware = len(allFirmwares)
 	}
 
-	// 活跃任务
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	activeTasks, err := s.taskStore.ListActiveTasks(ctx)
 	if err == nil {
 		dashboard.ActiveTasks = len(activeTasks)
 	}
 
-	// 待升级设备
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	pendingDevices, err := s.countPendingUpgrades(ctx)
 	if err == nil {
 		dashboard.PendingUpgrades = pendingDevices
 	}
 
-	// 今日记录
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	todayCount, err := s.recordStore.CountTodayRecords(ctx)
 	if err == nil {
 		dashboard.TodayRecords = todayCount
 	}
 
-	// 成功率计算
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	successRate, err := s.calculateSuccessRate(ctx)
 	if err == nil {
 		dashboard.SuccessRate = successRate
 	}
 
-	// 版本分布
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	dashboard.VersionDistribution = s.calculateVersionDistribution(ctx)
 
-	// 型号分布
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	dashboard.ModelDistribution = s.calculateModelDistribution(ctx)
+
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 
 	return dashboard, nil
 }
 
 // GetStatistics 获取详细统计
 func (s *StatsService) GetStatistics(ctx context.Context) (*model.Statistics, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	stats := model.NewStatistics()
 
-	// 设备统计
 	deviceStatus, err := s.deviceStore.CountDevicesByStatus(ctx)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := store.ValidateContext(ctx); err != nil {
 		return nil, err
 	}
 
@@ -123,19 +158,24 @@ func (s *StatsService) GetStatistics(ctx context.Context) (*model.Statistics, er
 		stats.TotalDevices += count
 	}
 
-	// 型号数量
 	_, totalModels, err := s.modelStore.ListModels(ctx, 1, 1)
 	if err == nil {
 		stats.TotalModels = int(totalModels)
 	}
 
-	// 固件数量
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	allFirmwares, err := s.firmwareStore.GetAllFirmwares(ctx)
 	if err == nil {
 		stats.TotalFirmware = len(allFirmwares)
 	}
 
-	// 任务统计
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	allTasks, err := s.taskStore.GetAllTasks(ctx)
 	if err == nil {
 		stats.TotalTasks = len(allTasks)
@@ -146,7 +186,10 @@ func (s *StatsService) GetStatistics(ctx context.Context) (*model.Statistics, er
 		}
 	}
 
-	// 成功率计算
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	successCount := 0
 	failCount := 0
 	records, err := s.recordStore.GetAllRecords(ctx)
@@ -161,22 +204,38 @@ func (s *StatsService) GetStatistics(ctx context.Context) (*model.Statistics, er
 	}
 	stats.CalculateRates(successCount, failCount)
 
-	// 版本分布
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	stats.VersionDistribution = s.calculateVersionDistribution(ctx)
 
-	// 型号分布
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
+
 	stats.ModelDistribution = s.calculateModelDistribution(ctx)
+
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 
 	return stats, nil
 }
 
 // GetVersionDistribution 获取各版本设备分布
 func (s *StatsService) GetVersionDistribution(ctx context.Context) (map[string]int, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	return s.calculateVersionDistribution(ctx), nil
 }
 
 // GetModelDistribution 获取各型号设备分布
 func (s *StatsService) GetModelDistribution(ctx context.Context) (map[string]int, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	return s.calculateModelDistribution(ctx), nil
 }
 
@@ -208,6 +267,9 @@ func (s *StatsService) GetUpgradeStatusSummary(ctx context.Context) (map[model.U
 
 // calculateVersionDistribution 计算版本分布
 func (s *StatsService) calculateVersionDistribution(ctx context.Context) map[string]int {
+	if err := store.ValidateContext(ctx); err != nil {
+		return make(map[string]int)
+	}
 	dist := make(map[string]int)
 
 	devices, _, err := s.deviceStore.GetAllDevices(ctx, 1, 10000)
@@ -215,7 +277,10 @@ func (s *StatsService) calculateVersionDistribution(ctx context.Context) map[str
 		return dist
 	}
 
-	// 计算分页后的总数
+	if err := store.ValidateContext(ctx); err != nil {
+		return make(map[string]int)
+	}
+
 	for _, d := range devices {
 		version := d.CurrentFWVer
 		if version == "" {
@@ -224,7 +289,6 @@ func (s *StatsService) calculateVersionDistribution(ctx context.Context) map[str
 		dist[version]++
 	}
 
-	// 如果设备超过10000，需要继续获取
 	for {
 		remaining, _, err := s.deviceStore.GetAllDevices(ctx, 2, 10000)
 		if err != nil || len(remaining) == 0 {
@@ -237,7 +301,6 @@ func (s *StatsService) calculateVersionDistribution(ctx context.Context) map[str
 			}
 			dist[version]++
 		}
-		// 简化：只获取第一页和第二页
 		break
 	}
 
@@ -246,11 +309,18 @@ func (s *StatsService) calculateVersionDistribution(ctx context.Context) map[str
 
 // calculateModelDistribution 计算型号分布
 func (s *StatsService) calculateModelDistribution(ctx context.Context) map[string]int {
+	if err := store.ValidateContext(ctx); err != nil {
+		return make(map[string]int)
+	}
 	dist := make(map[string]int)
 
 	devices, _, err := s.deviceStore.GetAllDevices(ctx, 1, 10000)
 	if err != nil {
 		return dist
+	}
+
+	if err := store.ValidateContext(ctx); err != nil {
+		return make(map[string]int)
 	}
 
 	for _, d := range devices {
@@ -281,8 +351,15 @@ func (s *StatsService) calculateModelDistribution(ctx context.Context) map[strin
 
 // calculateSuccessRate 计算成功率
 func (s *StatsService) calculateSuccessRate(ctx context.Context) (float64, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return 0, err
+	}
 	records, err := s.recordStore.GetAllRecords(ctx)
 	if err != nil {
+		return 0, err
+	}
+
+	if err := store.ValidateContext(ctx); err != nil {
 		return 0, err
 	}
 
@@ -304,8 +381,15 @@ func (s *StatsService) calculateSuccessRate(ctx context.Context) (float64, error
 
 // countPendingUpgrades 统计待升级设备数
 func (s *StatsService) countPendingUpgrades(ctx context.Context) (int, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return 0, err
+	}
 	tasks, err := s.taskStore.ListActiveTasks(ctx)
 	if err != nil {
+		return 0, err
+	}
+
+	if err := store.ValidateContext(ctx); err != nil {
 		return 0, err
 	}
 

@@ -70,7 +70,10 @@ func (s *MemoryStore) ListTasks(_ context.Context, page, pageSize int, status mo
 }
 
 // ListActiveTasks 列出活跃任务
-func (s *MemoryStore) ListActiveTasks(_ context.Context) ([]*model.UpgradeTask, error) {
+func (s *MemoryStore) ListActiveTasks(ctx context.Context) ([]*model.UpgradeTask, error) {
+	if err := ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

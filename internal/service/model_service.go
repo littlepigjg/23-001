@@ -50,6 +50,9 @@ func (s *DeviceModelService) CreateModel(ctx context.Context, req *model.CreateM
 
 // GetModel 根据ID获取设备型号
 func (s *DeviceModelService) GetModel(ctx context.Context, id model.ID) (*model.DeviceModel, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	m, err := s.store.GetModelByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
@@ -59,6 +62,9 @@ func (s *DeviceModelService) GetModel(ctx context.Context, id model.ID) (*model.
 
 // ListModels 列出设备型号
 func (s *DeviceModelService) ListModels(ctx context.Context, page, pageSize int) ([]*model.DeviceModel, int64, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, 0, err
+	}
 	if page < 1 {
 		page = 1
 	}
@@ -74,7 +80,10 @@ func (s *DeviceModelService) ListModels(ctx context.Context, page, pageSize int)
 		return nil, 0, fmt.Errorf("failed to list models: %w", err)
 	}
 
-	// 填充设备数量
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, 0, err
+	}
+
 	for _, m := range models {
 		count, err := s.store.CountModelDevices(ctx, m.ID)
 		if err == nil {

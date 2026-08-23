@@ -187,7 +187,10 @@ func (s *MemoryStore) DeleteFirmware(_ context.Context, id model.ID) error {
 }
 
 // GetAllFirmwares 获取所有固件
-func (s *MemoryStore) GetAllFirmwares(_ context.Context) ([]*model.Firmware, error) {
+func (s *MemoryStore) GetAllFirmwares(ctx context.Context) ([]*model.Firmware, error) {
+	if err := ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

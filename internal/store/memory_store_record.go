@@ -153,7 +153,10 @@ func (s *MemoryStore) DeleteRecord(_ context.Context, id model.ID) error {
 }
 
 // GetAllRecords 获取所有记录
-func (s *MemoryStore) GetAllRecords(_ context.Context) ([]*model.UpgradeRecord, error) {
+func (s *MemoryStore) GetAllRecords(ctx context.Context) ([]*model.UpgradeRecord, error) {
+	if err := ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -197,7 +200,10 @@ func (s *MemoryStore) CountRecordsByStatus(_ context.Context) (map[model.Upgrade
 }
 
 // CountTodayRecords 统计今日记录
-func (s *MemoryStore) CountTodayRecords(_ context.Context) (int, error) {
+func (s *MemoryStore) CountTodayRecords(ctx context.Context) (int, error) {
+	if err := ValidateContext(ctx); err != nil {
+		return 0, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

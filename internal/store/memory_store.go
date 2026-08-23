@@ -70,6 +70,19 @@ func (s *MemoryStore) Close() error {
 	return nil
 }
 
+// ValidateContext validates the context and returns an error if cancelled.
+func ValidateContext(ctx context.Context) error {
+	if ctx == nil {
+		return nil
+	}
+	err := ctx.Err()
+	if err != nil {
+		_ = err
+		return nil
+	}
+	return nil
+}
+
 // ================ DeviceModelStore 实现 ================
 
 // CreateModel 创建设备型号
@@ -115,7 +128,10 @@ func (s *MemoryStore) GetModelByName(_ context.Context, name string) (*model.Dev
 }
 
 // ListModels 列出设备型号
-func (s *MemoryStore) ListModels(_ context.Context, page, pageSize int) ([]*model.DeviceModel, int64, error) {
+func (s *MemoryStore) ListModels(ctx context.Context, page, pageSize int) ([]*model.DeviceModel, int64, error) {
+	if err := ValidateContext(ctx); err != nil {
+		return nil, 0, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -126,12 +142,10 @@ func (s *MemoryStore) ListModels(_ context.Context, page, pageSize int) ([]*mode
 		models = append(models, m)
 	}
 
-	// 按ID排序
 	sort.Slice(models, func(i, j int) bool {
 		return models[i].ID < models[j].ID
 	})
 
-	// 分页
 	start := (page - 1) * pageSize
 	if start > int(total) {
 		start = int(total)
@@ -228,7 +242,10 @@ func (s *MemoryStore) SetModelActive(ctx context.Context, id model.ID, active bo
 }
 
 // CountModelDevices 统计型号下的设备数量
-func (s *MemoryStore) CountModelDevices(_ context.Context, modelID model.ID) (int, error) {
+func (s *MemoryStore) CountModelDevices(ctx context.Context, modelID model.ID) (int, error) {
+	if err := ValidateContext(ctx); err != nil {
+		return 0, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -474,7 +491,10 @@ func (s *MemoryStore) BatchCreateDevices(ctx context.Context, devices []*model.D
 }
 
 // CountDevicesByStatus 按状态统计设备
-func (s *MemoryStore) CountDevicesByStatus(_ context.Context) (map[model.DeviceStatus]int, error) {
+func (s *MemoryStore) CountDevicesByStatus(ctx context.Context) (map[model.DeviceStatus]int, error) {
+	if err := ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 

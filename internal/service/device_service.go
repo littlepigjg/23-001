@@ -58,6 +58,9 @@ func (s *DeviceService) CreateDevice(ctx context.Context, req *model.CreateDevic
 
 // GetDevice 获取设备
 func (s *DeviceService) GetDevice(ctx context.Context, id model.ID) (*model.Device, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	d, err := s.store.GetDeviceByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("device not found: %w", err)
@@ -76,6 +79,9 @@ func (s *DeviceService) GetDeviceByDeviceID(ctx context.Context, deviceID string
 
 // ListDevices 列出设备
 func (s *DeviceService) ListDevices(ctx context.Context, page, pageSize int, modelID model.ID, status model.DeviceStatus) ([]*model.Device, int64, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, 0, err
+	}
 	if page < 1 {
 		page = 1
 	}
@@ -199,6 +205,9 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterD
 
 // SearchDevices 搜索设备
 func (s *DeviceService) SearchDevices(ctx context.Context, keyword string, page, pageSize int) ([]*model.Device, int64, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, 0, err
+	}
 	if page < 1 {
 		page = 1
 	}

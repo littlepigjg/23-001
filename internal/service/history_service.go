@@ -23,6 +23,9 @@ func NewHistoryService(rs store.RecordStore) *HistoryService {
 
 // ListRecords 列出升级历史记录
 func (s *HistoryService) ListRecords(ctx context.Context, page, pageSize int, status model.UpgradeStatus) ([]*model.UpgradeRecord, int64, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, 0, err
+	}
 	if page < 1 {
 		page = 1
 	}
@@ -38,6 +41,9 @@ func (s *HistoryService) ListRecords(ctx context.Context, page, pageSize int, st
 
 // GetRecord 获取单条记录
 func (s *HistoryService) GetRecord(ctx context.Context, id model.ID) (*model.UpgradeRecord, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	record, err := s.recordStore.GetRecordByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("record not found: %w", err)
@@ -57,6 +63,9 @@ func (s *HistoryService) GetTaskHistory(ctx context.Context, taskID model.ID) ([
 
 // GetRecentRecords 获取最近的升级记录
 func (s *HistoryService) GetRecentRecords(ctx context.Context, limit int) ([]*model.UpgradeRecord, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	if limit <= 0 {
 		limit = 10
 	}
@@ -88,6 +97,9 @@ func (s *HistoryService) CountByStatus(ctx context.Context) (map[model.UpgradeSt
 
 // CountTodayRecords 统计今日记录数
 func (s *HistoryService) CountTodayRecords(ctx context.Context) (int, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return 0, err
+	}
 	return s.recordStore.CountTodayRecords(ctx)
 }
 

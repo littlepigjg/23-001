@@ -105,6 +105,9 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 
 // GetFirmware 获取固件
 func (s *FirmwareService) GetFirmware(ctx context.Context, id model.ID) (*model.Firmware, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	fw, err := s.store.GetFirmwareByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("firmware not found: %w", err)
@@ -114,6 +117,9 @@ func (s *FirmwareService) GetFirmware(ctx context.Context, id model.ID) (*model.
 
 // ListFirmwares 列出固件
 func (s *FirmwareService) ListFirmwares(ctx context.Context, page, pageSize int, modelID model.ID) ([]*model.Firmware, int64, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, 0, err
+	}
 	if page < 1 {
 		page = 1
 	}
@@ -129,6 +135,9 @@ func (s *FirmwareService) ListFirmwares(ctx context.Context, page, pageSize int,
 
 // GetLatestFirmware 获取最新固件
 func (s *FirmwareService) GetLatestFirmware(ctx context.Context, modelID model.ID) (*model.Firmware, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	return s.store.GetLatestFirmware(ctx, modelID)
 }
 
@@ -209,5 +218,8 @@ func (s *FirmwareService) ValidateFirmwareMD5(ctx context.Context, id model.ID, 
 
 // GetAllFirmwares 获取所有固件
 func (s *FirmwareService) GetAllFirmwares(ctx context.Context) ([]*model.Firmware, error) {
+	if err := store.ValidateContext(ctx); err != nil {
+		return nil, err
+	}
 	return s.store.GetAllFirmwares(ctx)
 }
