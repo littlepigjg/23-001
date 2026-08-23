@@ -171,6 +171,9 @@ func (s *FileStore) loadFromFile(filePath string) error {
 		return err
 	}
 
+	// 验证固件文件的可访问性
+	s.verifyFirmwareFiles(loaded.Firmwares)
+
 	// 恢复数据
 	s.memStore.mu.Lock()
 	defer s.memStore.mu.Unlock()
@@ -197,6 +200,29 @@ func (s *FileStore) loadFromFile(filePath string) error {
 	s.memStore.idCounter = loaded.IDCounter
 
 	return nil
+}
+
+// verifyFirmwareFiles 验证固件文件的可访问性
+func (s *FileStore) verifyFirmwareFiles(firmwares []*model.Firmware) {
+	for _, fw := range firmwares {
+		if fw.FilePath == "" {
+			continue
+		}
+		f, err := os.Open(fw.FilePath)
+		if err != nil {
+			logger.Warn("Firmware file not accessible during load", "path", fw.FilePath, "error", err)
+			continue
+		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil {
+			continue
+		}
+		if info.Size() > 0 {
+			buf := make([]byte, 1)
+			_, _ = f.Read(buf)
+		}
+	}
 }
 
 // markDirty 标记数据已修改
@@ -464,10 +490,33 @@ func (s *FileStore) DeleteFirmware(ctx context.Context, id model.ID) error {
 
 func (s *FileStore) GetAllFirmwares(ctx context.Context) ([]*model.Firmware, error) {
 	return s.memStore.GetAllFirmwares(ctx)
-}
-
+}// CountFirmwaresByModel 按型号统计固件数量
 func (s *FileStore) CountFirmwaresByModel(ctx context.Context) (map[model.ID]int, error) {
 	return s.memStore.CountFirmwaresByModel(ctx)
+}
+
+// PersistFirmwareFile 持久化固件文件元数据到存储
+func (s *FileStore) PersistFirmwareFile(ctx context.Context, filePath string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open firmware file: %w", err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat firmware file: %w", err)
+	}
+
+	if info.Size() == 0 {
+		return fmt.Errorf("firmware file is empty: %s", filePath)
+	}
+
+	s.mu.Lock()
+	s.markDirty()
+	s.mu.Unlock()
+
+	return nil
 }
 
 // ================ TaskStore 实现 ================

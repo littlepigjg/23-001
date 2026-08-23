@@ -118,6 +118,21 @@ type BatchCreateDeviceRequest struct {
 	Devices []CreateDeviceRequest `json:"devices"`
 }
 
+// FirmwareBatchItem 固件批量上传单项
+type FirmwareBatchItem struct {
+	ModelID         ID        `json:"model_id"`
+	Version         string    `json:"version"`
+	FilePath        string    `json:"file_path"`
+	ReleaseDate     time.Time `json:"release_date"`
+	Changelog       string    `json:"changelog"`
+	SkipMD5Check    bool      `json:"skip_md5_check"`
+}
+
+// BatchUploadFirmwareRequest 固件批量上传请求
+type BatchUploadFirmwareRequest struct {
+	Items []FirmwareBatchItem `json:"items"`
+}
+
 // BatchResult 批量操作结果
 type BatchResult struct {
 	SuccessCount int         `json:"success_count"`

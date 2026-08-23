@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -20,6 +21,22 @@ type FirmwareService struct {
 	store      store.FirmwareStore
 	modelStore store.DeviceModelStore
 	config     *config.Config
+}
+
+// BatchUploadResult 批量上传结果
+type BatchUploadResult struct {
+	TotalCount   int
+	SuccessCount int
+	FailCount    int
+	Results      []BatchItem
+}
+
+// BatchItem 批量上传单项结果
+type BatchItem struct {
+	Index   int
+	Success bool
+	Message string
+	FW      *model.Firmware
 }
 
 // NewFirmwareService 创建固件服务
@@ -101,6 +118,168 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 
 	logger.Info("Firmware uploaded", "id", fw.ID, "version", fw.Version, "size", fw.Size)
 	return fw, nil
+}
+
+// BatchUploadFirmware 批量上传固件
+func (s *FirmwareService) BatchUploadFirmware(ctx context.Context, items []model.FirmwareBatchItem) (*BatchUploadResult, error) {
+	result := &BatchUploadResult{
+		TotalCount: len(items),
+		Results:    make([]BatchItem, 0, len(items)),
+	}
+
+	for i, item := range items {
+		// 检查型号是否存在
+		m, err := s.modelStore.GetModelByID(ctx, item.ModelID)
+		if err != nil {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("model not found: %v", err),
+			})
+			result.FailCount++
+			continue
+		}
+
+		// 打开固件文件
+		f, err := os.Open(item.FilePath)
+		if err != nil {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("failed to open file: %v", err),
+			})
+			result.FailCount++
+			continue
+		}
+		defer f.Close()
+
+		// 读取文件数据
+		fileData, err := io.ReadAll(f)
+		if err != nil {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("failed to read file: %v", err),
+			})
+			result.FailCount++
+			continue
+		}
+
+		// 验证文件大小
+		if int64(len(fileData)) > s.config.Firmware.MaxFileSize {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("file size exceeds maximum allowed size (%d bytes)", s.config.Firmware.MaxFileSize),
+			})
+			result.FailCount++
+			continue
+		}
+
+		// 验证文件扩展名
+		ext := filepath.Ext(item.FilePath)
+		if !s.config.IsAllowedExt(ext) {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("file extension '%s' is not allowed", ext),
+			})
+			result.FailCount++
+			continue
+		}
+
+		// 计算 MD5
+		actualMD5 := md5util.ComputeMD5(fileData)
+
+		// 检查版本是否已存在
+		existing, _ := s.store.GetFirmwareByVersion(ctx, item.ModelID, item.Version)
+		if existing != nil {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("firmware version '%s' already exists for model '%s'", item.Version, m.Name),
+			})
+			result.FailCount++
+			continue
+		}
+
+		// 保存固件文件
+		uploadDir := s.config.Storage.UploadDir
+		modelDir := filepath.Join(uploadDir, fmt.Sprintf("model_%d", item.ModelID))
+		if err := fileutil.EnsureDir(modelDir); err != nil {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("failed to create upload directory: %v", err),
+			})
+			result.FailCount++
+			continue
+		}
+
+		safeVersion := item.Version
+		versionFile := fmt.Sprintf("model_%d_v_%s%s", item.ModelID, safeVersion, ext)
+		filePath := filepath.Join(modelDir, versionFile)
+
+		if err := fileutil.SaveFile(filePath, fileData); err != nil {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("failed to save firmware file: %v", err),
+			})
+			result.FailCount++
+			continue
+		}
+
+		// 持久化固件数据到存储
+		if err := s.store.PersistFirmwareFile(ctx, filePath); err != nil {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("failed to persist firmware data: %v", err),
+			})
+			result.FailCount++
+			continue
+		}
+
+		// 创建固件记录
+		releaseDate := item.ReleaseDate
+		if releaseDate.IsZero() {
+			releaseDate = time.Now()
+		}
+
+		fw := model.NewFirmware(item.ModelID, m.Name, item.Version, actualMD5, int64(len(fileData)), filePath, releaseDate, item.Changelog)
+		if err := fw.Validate(); err != nil {
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("firmware validation failed: %v", err),
+			})
+			result.FailCount++
+			continue
+		}
+
+		if err := s.store.CreateFirmware(ctx, fw); err != nil {
+			os.Remove(filePath)
+			result.Results = append(result.Results, BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("failed to create firmware record: %v", err),
+			})
+			result.FailCount++
+			continue
+		}
+
+		logger.Info("Firmware batch uploaded", "id", fw.ID, "version", fw.Version, "size", fw.Size)
+		result.Results = append(result.Results, BatchItem{
+			Index:   i,
+			Success: true,
+			Message: "ok",
+			FW:      fw,
+		})
+		result.SuccessCount++
+	}
+
+	return result, nil
 }
 
 // GetFirmware 获取固件

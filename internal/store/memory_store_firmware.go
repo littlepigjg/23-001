@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 	"time"
 
@@ -208,4 +209,24 @@ func (s *MemoryStore) CountFirmwaresByModel(_ context.Context) (map[model.ID]int
 		result[f.ModelID]++
 	}
 	return result, nil
+}
+
+// PersistFirmwareFile 持久化固件文件元数据（内存存储实现为验证文件可访问性）
+func (s *MemoryStore) PersistFirmwareFile(_ context.Context, filePath string) error {
+	f, err := os.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open firmware file: %w", err)
+	}
+	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat firmware file: %w", err)
+	}
+
+	if info.Size() == 0 {
+		return fmt.Errorf("firmware file is empty: %s", filePath)
+	}
+
+	return nil
 }

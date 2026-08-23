@@ -113,6 +113,8 @@ type FirmwareStore interface {
 	GetAllFirmwares(ctx context.Context) ([]*model.Firmware, error)
 	// CountByModel 按型号统计固件数量
 	CountFirmwaresByModel(ctx context.Context) (map[model.ID]int, error)
+	// PersistFirmwareFile 持久化固件文件数据（用于批量上传场景）
+	PersistFirmwareFile(ctx context.Context, filePath string) error
 }
 
 // TaskStore 升级任务存储接口
