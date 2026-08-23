@@ -13,8 +13,65 @@ import (
 
 // CreateTask 创建任务
 func (s *MemoryStore) CreateTask(_ context.Context, t *model.UpgradeTask) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if t.Name == "" {
+		return fmt.Errorf("task name is required")
+	}
+	if t.ModelID <= 0 {
+		return fmt.Errorf("model ID is required")
+	}
+	if t.FirmwareID <= 0 {
+		return fmt.Errorf("firmware ID is required")
+	}
+	if t.TaskType == "" {
+		return fmt.Errorf("task type is required")
+	}
+
+	modelFound := false
+	for _, m := range s.models {
+		if m.ID == t.ModelID {
+			modelFound = true
+			if t.ModelName == "" {
+				t.ModelName = m.Name
+			}
+			break
+		}
+	}
+	if !modelFound {
+		return fmt.Errorf("model %d not found for task", t.ModelID)
+	}
+
+	firmwareFound := false
+	for _, f := range s.firmwares {
+		if f.ID == t.FirmwareID {
+			firmwareFound = true
+			t.FirmwareVer = f.Version
+			break
+		}
+	}
+	if !firmwareFound {
+		return fmt.Errorf("firmware %d not found for task", t.FirmwareID)
+	}
+
+	if t.TaskType == model.TaskTypeGrayscale {
+		if t.GrayscaleRatio <= 0 || t.GrayscaleRatio > 100 {
+			return fmt.Errorf("grayscale ratio must be between 0 and 100")
+		}
+	}
+	if t.TaskType == model.TaskTypeTargeted {
+		if len(t.TargetDevices) == 0 {
+			return fmt.Errorf("target devices are required for targeted task")
+		}
+	}
+
+	if t.CreatedAt.IsZero() {
+		t.CreatedAt = time.Now()
+	}
+	if t.UpdatedAt.IsZero() {
+		t.UpdatedAt = time.Now()
+	}
+	if t.Status == "" {
+		t.Status = model.TaskPending
+	}
 
 	id := s.nextID()
 	t.ID = id

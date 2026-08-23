@@ -3,6 +3,9 @@
 
 FROM golang:1.22-alpine
 
+# 安装 CGO 依赖（race detector 需要）
+RUN apk add --no-cache gcc musl-dev
+
 # 设置工作目录
 WORKDIR /app
 

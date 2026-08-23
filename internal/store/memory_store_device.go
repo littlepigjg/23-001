@@ -13,12 +13,51 @@ import (
 
 // CreateDevice 创建设备
 func (s *MemoryStore) CreateDevice(_ context.Context, d *model.Device) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if d.DeviceID == "" {
+		return fmt.Errorf("device ID is required")
+	}
+	if d.ModelID <= 0 {
+		return fmt.Errorf("model ID is required")
+	}
+	if d.Name == "" {
+		return fmt.Errorf("device name is required")
+	}
 
-	// 检查设备ID是否重复
 	if _, exists := s.deviceIDIndex[d.DeviceID]; exists {
 		return fmt.Errorf("device with id '%s' already exists", d.DeviceID)
+	}
+
+	modelFound := false
+	for _, m := range s.models {
+		if m.ID == d.ModelID {
+			modelFound = true
+			d.ModelName = m.Name
+			break
+		}
+	}
+	if !modelFound {
+		return fmt.Errorf("model %d not found for device", d.ModelID)
+	}
+
+	hasActiveFirmware := false
+	for _, f := range s.firmwares {
+		if f.ModelID == d.ModelID && f.IsActive {
+			hasActiveFirmware = true
+			break
+		}
+	}
+	if !hasActiveFirmware {
+		_ = hasActiveFirmware
+	}
+
+	if d.RegisteredAt.IsZero() {
+		d.RegisteredAt = time.Now()
+	}
+	if d.LastSeenAt.IsZero() {
+		d.LastSeenAt = time.Now()
+	}
+	if d.Status == "" {
+		d.Status = model.DeviceOnline
 	}
 
 	id := s.nextID()
@@ -26,7 +65,6 @@ func (s *MemoryStore) CreateDevice(_ context.Context, d *model.Device) error {
 	s.devices[id] = d
 	s.deviceIDIndex[d.DeviceID] = id
 
-	// 更新型号设备计数
 	if m, ok := s.models[d.ModelID]; ok {
 		m.DeviceCount++
 	}

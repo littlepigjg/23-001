@@ -13,12 +13,40 @@ import (
 
 // CreateFirmware 创建固件
 func (s *MemoryStore) CreateFirmware(_ context.Context, f *model.Firmware) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if f.ModelID <= 0 {
+		return fmt.Errorf("invalid model ID")
+	}
+	if f.Version == "" {
+		return fmt.Errorf("version is required")
+	}
+	if f.Size <= 0 {
+		return fmt.Errorf("size must be positive")
+	}
 
 	key := fmt.Sprintf("%d:%s", f.ModelID, f.Version)
 	if _, exists := s.firmwareVersionIndex[key]; exists {
 		return fmt.Errorf("firmware version '%s' already exists for model %d", f.Version, f.ModelID)
+	}
+
+	modelFound := false
+	for _, m := range s.models {
+		if m.ID == f.ModelID {
+			modelFound = true
+			if f.ModelName == "" {
+				f.ModelName = m.Name
+			}
+			break
+		}
+	}
+	if !modelFound {
+		return fmt.Errorf("model %d not found for firmware", f.ModelID)
+	}
+
+	if f.CreatedAt.IsZero() {
+		f.CreatedAt = time.Now()
+	}
+	if f.UpdatedAt.IsZero() {
+		f.UpdatedAt = time.Now()
 	}
 
 	id := s.nextID()
