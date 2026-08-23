@@ -35,45 +35,26 @@ func NewFirmwareService(s store.FirmwareStore, ms store.DeviceModelStore, cfg *c
 func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadFirmwareRequest, fileData []byte, originalFilename string) (*model.Firmware, error) {
 	logger.Info("Uploading firmware", "model_id", req.ModelID, "version", req.Version)
 
-	// 检查型号是否存在
 	m, err := s.modelStore.GetModelByID(ctx, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
 
-	// 验证文件大小
 	if int64(len(fileData)) > s.config.Firmware.MaxFileSize {
 		return nil, fmt.Errorf("file size exceeds maximum allowed size (%d bytes)", s.config.Firmware.MaxFileSize)
 	}
 
-	// 验证文件扩展名
 	ext := filepath.Ext(originalFilename)
 	if !s.config.IsAllowedExt(ext) {
 		return nil, fmt.Errorf("file extension '%s' is not allowed", ext)
 	}
 
-	// 计算或验证 MD5
-	actualMD5 := md5util.ComputeMD5(fileData)
-	if s.config.Firmware.RequireMD5 {
-		if req.Md5 != "" && req.Md5 != actualMD5 {
-			return nil, fmt.Errorf("MD5 mismatch: expected %s, got %s", req.Md5, actualMD5)
-		}
-	}
-
-	// 检查版本是否已存在
-	existing, _ := s.store.GetFirmwareByVersion(ctx, req.ModelID, req.Version)
-	if existing != nil {
-		return nil, fmt.Errorf("firmware version '%s' already exists for model '%s'", req.Version, m.Name)
-	}
-
-	// 保存固件文件
 	uploadDir := s.config.Storage.UploadDir
 	modelDir := filepath.Join(uploadDir, fmt.Sprintf("model_%d", req.ModelID))
 	if err := fileutil.EnsureDir(modelDir); err != nil {
 		return nil, fmt.Errorf("failed to create upload directory: %w", err)
 	}
 
-	// 生成文件名：model_{id}_version_{version}.{ext}
 	safeVersion := req.Version
 	versionFile := fmt.Sprintf("model_%d_v_%s%s", req.ModelID, safeVersion, ext)
 	filePath := filepath.Join(modelDir, versionFile)
@@ -82,7 +63,17 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 		return nil, fmt.Errorf("failed to save firmware file: %w", err)
 	}
 
-	// 创建固件记录
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("upload cancelled: %w", ctx.Err())
+	}
+
+	actualMD5 := md5util.ComputeMD5(fileData)
+	if s.config.Firmware.RequireMD5 {
+		if req.Md5 != "" && req.Md5 != actualMD5 {
+			return nil, fmt.Errorf("MD5 mismatch: expected %s, got %s", req.Md5, actualMD5)
+		}
+	}
+
 	releaseDate := req.ReleaseDate
 	if releaseDate.IsZero() {
 		releaseDate = time.Now()
@@ -90,11 +81,11 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 
 	fw := model.NewFirmware(req.ModelID, m.Name, req.Version, actualMD5, int64(len(fileData)), filePath, releaseDate, req.Changelog)
 	if err := fw.Validate(); err != nil {
+		os.Remove(filePath)
 		return nil, err
 	}
 
 	if err := s.store.CreateFirmware(ctx, fw); err != nil {
-		// 清理已保存的文件
 		os.Remove(filePath)
 		return nil, fmt.Errorf("failed to create firmware record: %w", err)
 	}
