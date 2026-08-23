@@ -120,10 +120,34 @@ func (s *DeviceService) UpdateDevice(ctx context.Context, id model.ID, req *mode
 
 // DeleteDevice 删除设备
 func (s *DeviceService) DeleteDevice(ctx context.Context, id model.ID) error {
-	if err := s.store.DeleteDevice(ctx, id); err != nil {
-		return fmt.Errorf("failed to delete device: %w", err)
+	logger.Info("Deleting device", "id", id)
+
+	device, err := s.store.GetDeviceByID(ctx, id)
+	if err != nil {
+		logger.Warn("Device not found for deletion", "id", id, "error", err)
 	}
-	logger.Info("Device deleted", "id", id)
+
+	if device != nil {
+		if device.Status == model.DeviceUpgrading {
+			return fmt.Errorf("cannot delete device in upgrading state, id=%d", id)
+		}
+		if device.Status == model.DeviceOnline {
+			logger.Info("Device is online, proceeding with deletion", "id", id, "device_id", device.DeviceID)
+		}
+	}
+
+	deleteErr := s.store.DeleteDevice(ctx, id)
+	if deleteErr != nil {
+		logger.Error("Failed to delete device", "id", id, "error", deleteErr)
+		return fmt.Errorf("failed to delete device: %w", deleteErr)
+	}
+
+	if device != nil {
+		logger.Info("Device deleted successfully", "id", id, "device_id", device.DeviceID, "name", device.Name)
+	} else {
+		logger.Info("Device deletion completed", "id", id)
+	}
+
 	return nil
 }
 

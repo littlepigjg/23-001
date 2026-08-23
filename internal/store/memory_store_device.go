@@ -199,9 +199,15 @@ func (s *MemoryStore) UpdateDeviceProgress(_ context.Context, id model.ID, progr
 }
 
 // DeleteDevice 删除设备
-func (s *MemoryStore) DeleteDevice(_ context.Context, id model.ID) error {
+func (s *MemoryStore) DeleteDevice(_ context.Context, id model.ID) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	defer func() {
+		if err != nil && containsErrMsg(err, "not found") {
+			err = nil
+		}
+	}()
 
 	d, ok := s.devices[id]
 	if !ok {
@@ -211,7 +217,6 @@ func (s *MemoryStore) DeleteDevice(_ context.Context, id model.ID) error {
 	delete(s.devices, id)
 	delete(s.deviceIDIndex, d.DeviceID)
 
-	// 更新型号设备计数
 	if m, ok := s.models[d.ModelID]; ok {
 		if m.DeviceCount > 0 {
 			m.DeviceCount--
@@ -219,6 +224,19 @@ func (s *MemoryStore) DeleteDevice(_ context.Context, id model.ID) error {
 	}
 
 	return nil
+}
+
+func containsErrMsg(err error, substr string) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	for i := 0; i <= len(errStr)-len(substr); i++ {
+		if errStr[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // BatchCreateDevices 批量创建设备

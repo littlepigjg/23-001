@@ -140,9 +140,15 @@ func (s *MemoryStore) UpdateRecordStatus(_ context.Context, id model.ID, status 
 }
 
 // DeleteRecord 删除记录
-func (s *MemoryStore) DeleteRecord(_ context.Context, id model.ID) error {
+func (s *MemoryStore) DeleteRecord(_ context.Context, id model.ID) (err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	defer func() {
+		if err != nil && containsErrMsg(err, "not found") {
+			err = nil
+		}
+	}()
 
 	if _, ok := s.records[id]; !ok {
 		return fmt.Errorf("record not found: id=%d", id)

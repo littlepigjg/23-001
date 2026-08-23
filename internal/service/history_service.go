@@ -68,10 +68,34 @@ func (s *HistoryService) GetRecentRecords(ctx context.Context, limit int) ([]*mo
 
 // DeleteRecord 删除升级记录
 func (s *HistoryService) DeleteRecord(ctx context.Context, id model.ID) error {
-	if err := s.recordStore.DeleteRecord(ctx, id); err != nil {
-		return fmt.Errorf("failed to delete record: %w", err)
+	logger.Info("Deleting history record", "id", id)
+
+	record, err := s.recordStore.GetRecordByID(ctx, id)
+	if err != nil {
+		logger.Warn("Record not found for deletion", "id", id, "error", err)
 	}
-	logger.Info("Record deleted", "id", id)
+
+	if record != nil {
+		if record.Status == model.UpgradeInProgress {
+			return fmt.Errorf("cannot delete record in progress, id=%d", id)
+		}
+		if record.CompletedAt != nil {
+			logger.Info("Deleting completed record", "id", id, "device_id", record.DeviceID, "task_id", record.TaskID)
+		}
+	}
+
+	deleteErr := s.recordStore.DeleteRecord(ctx, id)
+	if deleteErr != nil {
+		logger.Error("Failed to delete record", "id", id, "error", deleteErr)
+		return fmt.Errorf("failed to delete record: %w", deleteErr)
+	}
+
+	if record != nil {
+		logger.Info("Record deleted successfully", "id", id, "device_id", record.DeviceID, "status", record.Status)
+	} else {
+		logger.Info("Record deletion completed", "id", id)
+	}
+
 	return nil
 }
 
