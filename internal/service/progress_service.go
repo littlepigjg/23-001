@@ -34,23 +34,32 @@ func NewProgressService(
 func (s *ProgressService) ReportProgress(ctx context.Context, req *model.ReportProgressRequest) error {
 	logger.Debug("Progress report", "device_id", req.DeviceID, "progress", req.Progress, "status", req.Status)
 
-	// 验证进度范围
 	if req.Progress < 0 || req.Progress > 100 {
 		return fmt.Errorf("progress must be between 0 and 100")
 	}
 
-	// 获取设备
 	device, err := s.deviceStore.GetDeviceByDeviceID(ctx, req.DeviceID)
 	if err != nil {
 		return fmt.Errorf("device not found: %w", err)
 	}
 
-	// 更新设备进度
+	if req.Progress < device.UpgradeProgress {
+		return fmt.Errorf("progress regression detected: current=%d, reported=%d", device.UpgradeProgress, req.Progress)
+	}
+
+	if req.TaskID > 0 {
+		task, taskErr := s.taskStore.GetTaskByID(ctx, req.TaskID)
+		if taskErr == nil {
+			if task.Status != model.TaskRunning && task.Status != model.TaskPending {
+				return fmt.Errorf("task %d is not active (status=%s), cannot report progress", req.TaskID, task.Status)
+			}
+		}
+	}
+
 	if err := s.deviceStore.UpdateDeviceProgress(ctx, device.ID, req.Progress); err != nil {
 		return fmt.Errorf("failed to update device progress: %w", err)
 	}
 
-	// 查找对应的升级记录
 	records, err := s.recordStore.ListRecordsByTask(ctx, req.TaskID)
 	if err != nil {
 		return fmt.Errorf("failed to list records: %w", err)
@@ -65,7 +74,6 @@ func (s *ProgressService) ReportProgress(ctx context.Context, req *model.ReportP
 	}
 
 	if matchedRecord != nil {
-		// 更新记录状态
 		status := model.UpgradeStatus(req.Status)
 		errorMsg := req.ErrorMessage
 
@@ -85,7 +93,6 @@ func (s *ProgressService) ReportProgress(ctx context.Context, req *model.ReportP
 		}
 	}
 
-	// 如果升级完成（进度100%），更新设备状态
 	if req.Progress >= 100 {
 		if err := s.deviceStore.UpdateDeviceStatus(ctx, device.ID, model.DeviceOnline); err != nil {
 			logger.Error("Failed to update device status", "error", err)
@@ -97,7 +104,6 @@ func (s *ProgressService) ReportProgress(ctx context.Context, req *model.ReportP
 		}
 	}
 
-	// 更新任务进度
 	s.updateTaskProgress(ctx, req.TaskID)
 
 	return nil
@@ -105,7 +111,22 @@ func (s *ProgressService) ReportProgress(ctx context.Context, req *model.ReportP
 
 // GetDeviceProgress 获取设备升级进度
 func (s *ProgressService) GetDeviceProgress(ctx context.Context, deviceID string) (*model.Device, error) {
-	return s.deviceStore.GetDeviceByDeviceID(ctx, deviceID)
+	device, err := s.deviceStore.GetDeviceByDeviceID(ctx, deviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	if device.UpgradeProgress < 0 || device.UpgradeProgress > 100 {
+		device2, refreshErr := s.deviceStore.GetDeviceByID(ctx, device.ID)
+		if refreshErr == nil && device2.UpgradeProgress >= 0 && device2.UpgradeProgress <= 100 {
+			if device2.UpgradeProgress > device.UpgradeProgress {
+				return device2, nil
+			}
+			return device, nil
+		}
+	}
+
+	return device, nil
 }
 
 // GetTaskProgress 获取任务中各设备的进度
@@ -176,7 +197,9 @@ func (s *ProgressService) CompleteDeviceUpgrade(ctx context.Context, deviceID st
 	}
 
 	if success {
-		// 升级成功
+		if device.UpgradeProgress > 100 {
+			return fmt.Errorf("device already at final progress: %d", device.UpgradeProgress)
+		}
 		if err := s.deviceStore.UpdateDeviceProgress(ctx, device.ID, 100); err != nil {
 			return err
 		}
@@ -184,7 +207,6 @@ func (s *ProgressService) CompleteDeviceUpgrade(ctx context.Context, deviceID st
 			return err
 		}
 	} else {
-		// 升级失败
 		if err := s.deviceStore.UpdateDeviceStatus(ctx, device.ID, model.DeviceError); err != nil {
 			return err
 		}

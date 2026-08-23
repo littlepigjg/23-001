@@ -1,7 +1,7 @@
 # benzhi.Dockerfile - 设备固件升级管理服务
-# 基于 golang:1.22 官方镜像，非多阶段构建
+# 基于 golang:1.22 官方镜像（Debian 版本自带 gcc，支持 CGO/race 检测）
 
-FROM golang:1.22-alpine
+FROM golang:1.22
 
 # 设置工作目录
 WORKDIR /app

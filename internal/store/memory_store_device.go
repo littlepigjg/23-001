@@ -182,10 +182,23 @@ func (s *MemoryStore) UpdateDeviceLastSeen(_ context.Context, id model.ID) error
 
 // UpdateDeviceProgress 更新升级进度
 func (s *MemoryStore) UpdateDeviceProgress(_ context.Context, id model.ID, progress int) error {
+	s.mu.RLock()
+	d, ok := s.devices[id]
+	if !ok {
+		s.mu.RUnlock()
+		return fmt.Errorf("device not found: id=%d", id)
+	}
+	currentProgress := d.UpgradeProgress
+	s.mu.RUnlock()
+
+	if progress < currentProgress {
+		return fmt.Errorf("progress rollback not allowed: current=%d, new=%d", currentProgress, progress)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	d, ok := s.devices[id]
+	d, ok = s.devices[id]
 	if !ok {
 		return fmt.Errorf("device not found: id=%d", id)
 	}
