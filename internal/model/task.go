@@ -111,3 +111,45 @@ func (t *UpgradeTask) ShouldUpgrade(deviceID string) bool {
 		return true
 	}
 }
+
+// Statistics 统计数据
+type Statistics struct {
+	TotalDevices        int            `json:"total_devices"`
+	OnlineDevices       int            `json:"online_devices"`
+	OfflineDevices      int            `json:"offline_devices"`
+	TotalModels         int            `json:"total_models"`
+	TotalFirmware       int            `json:"total_firmware"`
+	ActiveTasks         int            `json:"active_tasks"`
+	TotalTasks          int            `json:"total_tasks"`
+	SuccessRate         float64        `json:"success_rate"`
+	FailureRate         float64        `json:"failure_rate"`
+	VersionDistribution map[string]int `json:"version_distribution"`
+	ModelDistribution   map[string]int `json:"model_distribution"`
+}
+
+// NewStatistics 创建统计数据
+func NewStatistics() *Statistics {
+	return &Statistics{
+		VersionDistribution: make(map[string]int),
+		ModelDistribution:   make(map[string]int),
+	}
+}
+
+// AddVersionCount 增加版本分布计数
+func (s *Statistics) AddVersionCount(version string) {
+	s.VersionDistribution[version]++
+}
+
+// AddModelCount 增加型号分布计数
+func (s *Statistics) AddModelCount(model string) {
+	s.ModelDistribution[model]++
+}
+
+// CalculateRates 计算成功率和失败率
+func (s *Statistics) CalculateRates(totalSuccess, totalFail int) {
+	total := totalSuccess + totalFail
+	if total > 0 {
+		s.SuccessRate = float64(totalSuccess) / float64(total) * 100
+		s.FailureRate = float64(totalFail) / float64(total) * 100
+	}
+}

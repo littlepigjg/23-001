@@ -36,7 +36,7 @@ func (s *MemoryStore) GetFirmwareByID(_ context.Context, id model.ID) (*model.Fi
 
 	f, ok := s.firmwares[id]
 	if !ok {
-		return nil, fmt.Errorf("firmware not found: id=%d", id)
+		return nil, nil
 	}
 	return f, nil
 }
@@ -49,7 +49,7 @@ func (s *MemoryStore) GetFirmwareByVersion(_ context.Context, modelID model.ID, 
 	key := fmt.Sprintf("%d:%s", modelID, version)
 	id, ok := s.firmwareVersionIndex[key]
 	if !ok {
-		return nil, fmt.Errorf("firmware not found: model=%d, version=%s", modelID, version)
+		return nil, nil
 	}
 	return s.firmwares[id], nil
 }

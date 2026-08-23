@@ -175,6 +175,10 @@ func (s *ProgressService) CompleteDeviceUpgrade(ctx context.Context, deviceID st
 		return err
 	}
 
+	if device == nil {
+		device = &model.Device{}
+	}
+
 	if success {
 		// 升级成功
 		if err := s.deviceStore.UpdateDeviceProgress(ctx, device.ID, 100); err != nil {

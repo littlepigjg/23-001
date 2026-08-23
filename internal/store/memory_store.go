@@ -273,7 +273,7 @@ func (s *MemoryStore) GetDeviceByID(_ context.Context, id model.ID) (*model.Devi
 
 	d, ok := s.devices[id]
 	if !ok {
-		return nil, fmt.Errorf("device not found: id=%d", id)
+		return nil, nil
 	}
 	return d, nil
 }
@@ -285,7 +285,7 @@ func (s *MemoryStore) GetDeviceByDeviceID(_ context.Context, deviceID string) (*
 
 	id, ok := s.deviceIDIndex[deviceID]
 	if !ok {
-		return nil, fmt.Errorf("device not found: device_id=%s", deviceID)
+		return nil, nil
 	}
 	return s.devices[id], nil
 }
