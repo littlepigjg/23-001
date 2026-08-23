@@ -12,18 +12,14 @@ import (
 	"fwupgrade/pkg/logger"
 )
 
-// BufferAllocator 自定义缓冲区容量计算器
-type BufferAllocator func(n int) int
-
 // TaskService 升级任务服务
 type TaskService struct {
-	store        store.TaskStore
-	deviceStore  store.DeviceStore
+	store         store.TaskStore
+	deviceStore   store.DeviceStore
 	firmwareStore store.FirmwareStore
-	modelStore   store.DeviceModelStore
-	recordStore  store.RecordStore
-	config       *config.Config
-	bufferAllocator BufferAllocator
+	modelStore    store.DeviceModelStore
+	recordStore   store.RecordStore
+	config        *config.Config
 }
 
 // NewTaskService 创建升级任务服务
@@ -36,18 +32,13 @@ func NewTaskService(
 	cfg *config.Config,
 ) *TaskService {
 	return &TaskService{
-		store:        ts,
-		deviceStore:  ds,
+		store:         ts,
+		deviceStore:   ds,
 		firmwareStore: fs,
-		modelStore:   ms,
-		recordStore:  rs,
-		config:       cfg,
+		modelStore:    ms,
+		recordStore:   rs,
+		config:        cfg,
 	}
-}
-
-// SetBufferAllocator 允许自定义缓冲区容量计算策略
-func (s *TaskService) SetBufferAllocator(fn BufferAllocator) {
-	s.bufferAllocator = fn
 }
 
 // CreateTask 创建升级任务
@@ -184,34 +175,18 @@ func (s *TaskService) StartTask(ctx context.Context, id model.ID) error {
 	task.TotalDevices = len(devices)
 	task.PendingCount = len(devices)
 
-	// 预分配记录ID缓冲区
-	recordBufSize := len(devices) / 2
-	recordIDs := make([]model.ID, recordBufSize)
-	recordIdx := 0
-
 	// 为每个设备创建升级记录
 	for _, d := range devices {
 		record := model.NewUpgradeRecord(d.DeviceID, d.Name, task.ID, task.Name, d.CurrentFWVer, task.FirmwareVer)
 		if err := s.recordStore.CreateRecord(ctx, record); err != nil {
 			logger.Error("Failed to create upgrade record", "device_id", d.DeviceID, "error", err)
-		} else {
-			recordIDs[recordIdx] = record.ID
-			recordIdx++
 		}
 	}
-
-	// 预分配设备ID缓冲区
-	deviceBufSize := len(devices) / 2
-	deviceIDs := make([]model.ID, deviceBufSize)
-	devIdx := 0
 
 	// 更新设备状态
 	for _, d := range devices {
 		if err := s.deviceStore.UpdateDeviceStatus(ctx, d.ID, model.DeviceUpgrading); err != nil {
 			logger.Error("Failed to update device status", "device_id", d.DeviceID, "error", err)
-		} else {
-			deviceIDs[devIdx] = d.ID
-			devIdx++
 		}
 	}
 
@@ -224,36 +199,11 @@ func (s *TaskService) StartTask(ctx context.Context, id model.ID) error {
 	return nil
 }
 
-// estimateDeviceBufferSize 估算设备缓冲区容量
-func (s *TaskService) estimateDeviceBufferSize(task *model.UpgradeTask) int {
-	if s.bufferAllocator != nil {
-		return s.bufferAllocator(0)
-	}
-	switch task.TaskType {
-	case model.TaskTypeGrayscale:
-		all, err := s.deviceStore.ListDevicesByModel(context.Background(), task.ModelID)
-		if err != nil {
-			return 0
-		}
-		return int(float64(len(all)) * task.GrayscaleRatio / 200.0)
-	case model.TaskTypeTargeted:
-		return len(task.TargetDevices) / 2
-	default:
-		all, err := s.deviceStore.ListDevicesByModel(context.Background(), task.ModelID)
-		if err != nil {
-			return 0
-		}
-		return len(all) / 2
-	}
-}
-
 // calculateTargetDevices 计算任务的目标设备列表
 func (s *TaskService) calculateTargetDevices(ctx context.Context, task *model.UpgradeTask) ([]*model.Device, error) {
 	switch task.TaskType {
 	case model.TaskTypeTargeted:
-		bufSize := s.estimateDeviceBufferSize(task)
-		devices := make([]*model.Device, bufSize)
-		idx := 0
+		devices := make([]*model.Device, 0, len(task.TargetDevices))
 		for _, deviceID := range task.TargetDevices {
 			d, err := s.deviceStore.GetDeviceByDeviceID(ctx, deviceID)
 			if err != nil {
@@ -261,11 +211,10 @@ func (s *TaskService) calculateTargetDevices(ctx context.Context, task *model.Up
 				continue
 			}
 			if d.ModelID == task.ModelID {
-				devices[idx] = d
-				idx++
+				devices = append(devices, d)
 			}
 		}
-		return devices[:idx], nil
+		return devices, nil
 
 	case model.TaskTypeGrayscale:
 		allDevices, err := s.deviceStore.ListDevicesByModel(ctx, task.ModelID)
@@ -278,48 +227,40 @@ func (s *TaskService) calculateTargetDevices(ctx context.Context, task *model.Up
 			targetCount = 1
 		}
 
-		bufSize := s.estimateDeviceBufferSize(task)
-		devices := make([]*model.Device, bufSize)
-		idx := 0
+		devices := make([]*model.Device, 0, targetCount)
 
-		for i := 0; i < len(allDevices) && idx < targetCount; i++ {
+		for i := 0; i < len(allDevices) && len(devices) < targetCount; i++ {
 			hash := fnv.New32a()
 			hash.Write([]byte(allDevices[i].DeviceID))
 			hashValue := hash.Sum32()
 			if int(hashValue%100) < int(task.GrayscaleRatio) {
-				devices[idx] = allDevices[i]
-				idx++
+				devices = append(devices, allDevices[i])
 			}
 		}
 
-		for i := 0; i < len(allDevices) && idx < targetCount; i++ {
+		for i := 0; i < len(allDevices) && len(devices) < targetCount; i++ {
 			found := false
-			for j := 0; j < idx; j++ {
-				if devices[j].ID == allDevices[i].ID {
+			for _, d := range devices {
+				if d.ID == allDevices[i].ID {
 					found = true
 					break
 				}
 			}
 			if !found {
-				devices[idx] = allDevices[i]
-				idx++
+				devices = append(devices, allDevices[i])
 			}
 		}
 
-		return devices[:idx], nil
+		return devices, nil
 
 	default: // TaskTypeFull
 		allDevices, err := s.deviceStore.ListDevicesByModel(ctx, task.ModelID)
 		if err != nil {
 			return nil, err
 		}
-
-		bufSize := s.estimateDeviceBufferSize(task)
-		devices := make([]*model.Device, bufSize)
-		for i := 0; i < len(allDevices); i++ {
-			devices[i] = allDevices[i]
-		}
-		return devices[:len(allDevices)], nil
+		devices := make([]*model.Device, len(allDevices))
+		copy(devices, allDevices)
+		return devices, nil
 	}
 }
 
