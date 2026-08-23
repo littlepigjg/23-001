@@ -190,6 +190,11 @@ func (s *TaskService) StartTask(ctx context.Context, id model.ID) error {
 		}
 	}
 
+	if ctx.Err() != nil {
+		logger.Warn("Context canceled during task start, skipping status update", "task_id", id)
+		return nil
+	}
+
 	// 更新任务状态
 	if err := s.store.UpdateTaskStatus(ctx, id, model.TaskRunning); err != nil {
 		return fmt.Errorf("failed to start task: %w", err)

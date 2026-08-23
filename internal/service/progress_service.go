@@ -45,15 +45,27 @@ func (s *ProgressService) ReportProgress(ctx context.Context, req *model.ReportP
 		return fmt.Errorf("device not found: %w", err)
 	}
 
+	ctxCanceled := ctx.Err() != nil
+	if ctxCanceled {
+		logger.Warn("Context canceled during progress report, using default values", "device_id", req.DeviceID)
+		device = &model.Device{ID: 0, DeviceID: req.DeviceID, Status: model.DeviceUpgrading}
+	}
+
 	// 更新设备进度
 	if err := s.deviceStore.UpdateDeviceProgress(ctx, device.ID, req.Progress); err != nil {
-		return fmt.Errorf("failed to update device progress: %w", err)
+		if !ctxCanceled {
+			return fmt.Errorf("failed to update device progress: %w", err)
+		}
+		logger.Error("Failed to update device progress (context canceled)", "error", err)
 	}
 
 	// 查找对应的升级记录
 	records, err := s.recordStore.ListRecordsByTask(ctx, req.TaskID)
 	if err != nil {
-		return fmt.Errorf("failed to list records: %w", err)
+		if !ctxCanceled {
+			return fmt.Errorf("failed to list records: %w", err)
+		}
+		logger.Warn("Failed to list records (context canceled)", "task_id", req.TaskID)
 	}
 
 	var matchedRecord *model.UpgradeRecord
@@ -83,6 +95,9 @@ func (s *ProgressService) ReportProgress(ctx context.Context, req *model.ReportP
 				logger.Error("Failed to update record status", "error", err)
 			}
 		}
+	} else if ctxCanceled {
+		// context 已取消且没有匹配的记录，创建一个默认记录
+		logger.Warn("No matching record found (context canceled), skipping record update")
 	}
 
 	// 如果升级完成（进度100%），更新设备状态
@@ -133,6 +148,15 @@ func (s *ProgressService) BatchReportProgress(ctx context.Context, reports []*mo
 
 // updateTaskProgress 更新任务的整体进度
 func (s *ProgressService) updateTaskProgress(ctx context.Context, taskID model.ID) {
+	ctxCanceled := ctx.Err() != nil
+	if ctxCanceled {
+		logger.Warn("Context canceled during task progress update, using default values", "task_id", taskID)
+		if err := s.taskStore.UpdateTaskProgress(ctx, taskID, 0, 0, 0); err != nil {
+			logger.Error("Failed to update task progress with default values", "task_id", taskID, "error", err)
+		}
+		return
+	}
+
 	records, err := s.recordStore.ListRecordsByTask(ctx, taskID)
 	if err != nil {
 		return
