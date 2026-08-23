@@ -80,7 +80,7 @@ func (h *DeviceHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	device, err := h.deviceService.CreateDevice(r.Context(), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -97,7 +97,7 @@ func (h *DeviceHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	device, err := h.deviceService.GetDevice(r.Context(), model.ID(id))
 	if err != nil {
-		response.NotFound(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -113,7 +113,7 @@ func (h *DeviceHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	devices, total, err := h.deviceService.ListDevices(r.Context(), page, pageSize, model.ID(modelID), status)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -136,7 +136,7 @@ func (h *DeviceHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	device, err := h.deviceService.UpdateDevice(r.Context(), model.ID(id), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -152,7 +152,7 @@ func (h *DeviceHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.deviceService.DeleteDevice(r.Context(), model.ID(id)); err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -169,7 +169,7 @@ func (h *DeviceHandler) Register(w http.ResponseWriter, r *http.Request) {
 
 	device, err := h.deviceService.RegisterDevice(r.Context(), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -184,7 +184,7 @@ func (h *DeviceHandler) Search(w http.ResponseWriter, r *http.Request) {
 
 	devices, total, err := h.deviceService.SearchDevices(r.Context(), keyword, page, pageSize)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -201,7 +201,7 @@ func (h *DeviceHandler) BatchCreate(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.deviceService.BatchCreateDevices(r.Context(), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -212,7 +212,7 @@ func (h *DeviceHandler) BatchCreate(w http.ResponseWriter, r *http.Request) {
 func (h *DeviceHandler) GetStatus(w http.ResponseWriter, r *http.Request) {
 	stats, err := h.deviceService.GetDeviceStatusStats(r.Context())
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 

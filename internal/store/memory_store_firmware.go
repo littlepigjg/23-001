@@ -18,7 +18,7 @@ func (s *MemoryStore) CreateFirmware(_ context.Context, f *model.Firmware) error
 
 	key := fmt.Sprintf("%d:%s", f.ModelID, f.Version)
 	if _, exists := s.firmwareVersionIndex[key]; exists {
-		return fmt.Errorf("firmware version '%s' already exists for model %d", f.Version, f.ModelID)
+		return fmt.Errorf("%w: firmware version '%s' already exists for model %d", ErrConflict, f.Version, f.ModelID)
 	}
 
 	id := s.nextID()
@@ -36,7 +36,7 @@ func (s *MemoryStore) GetFirmwareByID(_ context.Context, id model.ID) (*model.Fi
 
 	f, ok := s.firmwares[id]
 	if !ok {
-		return nil, fmt.Errorf("firmware not found: id=%d", id)
+		return nil, fmt.Errorf("%w: firmware id=%d", ErrNotFound, id)
 	}
 	return f, nil
 }
@@ -49,7 +49,7 @@ func (s *MemoryStore) GetFirmwareByVersion(_ context.Context, modelID model.ID, 
 	key := fmt.Sprintf("%d:%s", modelID, version)
 	id, ok := s.firmwareVersionIndex[key]
 	if !ok {
-		return nil, fmt.Errorf("firmware not found: model=%d, version=%s", modelID, version)
+		return nil, fmt.Errorf("%w: firmware model=%d, version=%s", ErrNotFound, modelID, version)
 	}
 	return s.firmwares[id], nil
 }
@@ -69,7 +69,7 @@ func (s *MemoryStore) GetLatestFirmware(_ context.Context, modelID model.ID) (*m
 	}
 
 	if latest == nil {
-		return nil, fmt.Errorf("no firmware found for model %d", modelID)
+		return nil, fmt.Errorf("%w: no firmware found for model %d", ErrNotFound, modelID)
 	}
 	return latest, nil
 }
@@ -133,7 +133,7 @@ func (s *MemoryStore) UpdateFirmware(_ context.Context, f *model.Firmware) error
 	defer s.mu.Unlock()
 
 	if _, ok := s.firmwares[f.ID]; !ok {
-		return fmt.Errorf("firmware not found: id=%d", f.ID)
+		return fmt.Errorf("%w: firmware id=%d", ErrNotFound, f.ID)
 	}
 
 	f.UpdatedAt = time.Now()
@@ -148,7 +148,7 @@ func (s *MemoryStore) SetFirmwareActive(_ context.Context, id model.ID, active b
 
 	f, ok := s.firmwares[id]
 	if !ok {
-		return fmt.Errorf("firmware not found: id=%d", id)
+		return fmt.Errorf("%w: firmware id=%d", ErrNotFound, id)
 	}
 
 	f.IsActive = active
@@ -162,7 +162,7 @@ func (s *MemoryStore) IncrementFirmwareDownload(_ context.Context, id model.ID) 
 
 	f, ok := s.firmwares[id]
 	if !ok {
-		return fmt.Errorf("firmware not found: id=%d", id)
+		return fmt.Errorf("%w: firmware id=%d", ErrNotFound, id)
 	}
 
 	f.DownloadCount++
@@ -176,7 +176,7 @@ func (s *MemoryStore) DeleteFirmware(_ context.Context, id model.ID) error {
 
 	f, ok := s.firmwares[id]
 	if !ok {
-		return fmt.Errorf("firmware not found: id=%d", id)
+		return fmt.Errorf("%w: firmware id=%d", ErrNotFound, id)
 	}
 
 	delete(s.firmwares, id)

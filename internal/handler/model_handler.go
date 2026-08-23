@@ -34,7 +34,7 @@ func (h *DeviceModelHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	m, err := h.service.CreateModel(r.Context(), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -51,7 +51,7 @@ func (h *DeviceModelHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	m, err := h.service.GetModel(r.Context(), model.ID(id))
 	if err != nil {
-		response.NotFound(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -65,7 +65,7 @@ func (h *DeviceModelHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	models, total, err := h.service.ListModels(r.Context(), page, pageSize)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -88,7 +88,7 @@ func (h *DeviceModelHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	m, err := h.service.UpdateModel(r.Context(), model.ID(id), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -104,7 +104,7 @@ func (h *DeviceModelHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.DeleteModel(r.Context(), model.ID(id)); err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 

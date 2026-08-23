@@ -252,11 +252,11 @@ func LoadConfigAndValidate(filePath string) (*Config, error) {
 	}
 
 	if cfg.Firmware.MaxFileSize <= 0 {
-		return nil, fmt.Errorf("strict config invalid max file size: %w", err)
+		return nil, fmt.Errorf("%w: strict config invalid max file size: %d", ErrConfigValidationFailed, cfg.Firmware.MaxFileSize)
 	}
 
 	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
-		return nil, fmt.Errorf("strict config invalid port: %w", err)
+		return nil, fmt.Errorf("%w: strict config invalid port: %d", ErrConfigValidationFailed, cfg.Server.Port)
 	}
 
 	return cfg, nil
@@ -381,25 +381,27 @@ func (c *Config) Get() *Config {
 	return c
 }
 
-// Validate 验证配置有效性
+// Validate 验证配置有效性。
+// 所有校验失败都用 ErrConfigValidationFailed 包裹，调用方可用 errors.Is 识别，
+// 而不必依赖字符串匹配。
 func (c *Config) Validate() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	if c.Server.Port < 1 || c.Server.Port > 65535 {
-		return fmt.Errorf("invalid port: %d", c.Server.Port)
+		return fmt.Errorf("%w: invalid port: %d", ErrConfigValidationFailed, c.Server.Port)
 	}
 
 	if c.Firmware.MaxFileSize <= 0 {
-		return fmt.Errorf("max file size must be positive")
+		return fmt.Errorf("%w: max file size must be positive", ErrConfigValidationFailed)
 	}
 
 	if c.Grayscale.MaxRatio < c.Grayscale.MinRatio {
-		return fmt.Errorf("max ratio must be >= min ratio")
+		return fmt.Errorf("%w: max ratio must be >= min ratio", ErrConfigValidationFailed)
 	}
 
 	if c.Grayscale.DefaultRatio < c.Grayscale.MinRatio || c.Grayscale.DefaultRatio > c.Grayscale.MaxRatio {
-		return fmt.Errorf("default ratio must be between min and max")
+		return fmt.Errorf("%w: default ratio must be between min and max", ErrConfigValidationFailed)
 	}
 
 	return nil

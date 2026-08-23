@@ -30,7 +30,7 @@ func (s *MemoryStore) GetTaskByID(_ context.Context, id model.ID) (*model.Upgrad
 
 	t, ok := s.tasks[id]
 	if !ok {
-		return nil, fmt.Errorf("task not found: id=%d", id)
+		return nil, fmt.Errorf("%w: task id=%d", ErrNotFound, id)
 	}
 	return t, nil
 }
@@ -103,7 +103,7 @@ func (s *MemoryStore) UpdateTask(_ context.Context, t *model.UpgradeTask) error 
 	defer s.mu.Unlock()
 
 	if _, ok := s.tasks[t.ID]; !ok {
-		return fmt.Errorf("task not found: id=%d", t.ID)
+		return fmt.Errorf("%w: task id=%d", ErrNotFound, t.ID)
 	}
 
 	t.UpdatedAt = time.Now()
@@ -118,7 +118,7 @@ func (s *MemoryStore) UpdateTaskStatus(_ context.Context, id model.ID, status mo
 
 	t, ok := s.tasks[id]
 	if !ok {
-		return fmt.Errorf("task not found: id=%d", id)
+		return fmt.Errorf("%w: task id=%d", ErrNotFound, id)
 	}
 
 	t.Status = status
@@ -143,7 +143,7 @@ func (s *MemoryStore) UpdateTaskProgress(_ context.Context, id model.ID, success
 
 	t, ok := s.tasks[id]
 	if !ok {
-		return fmt.Errorf("task not found: id=%d", id)
+		return fmt.Errorf("%w: task id=%d", ErrNotFound, id)
 	}
 
 	t.SuccessCount = successCount
@@ -161,7 +161,7 @@ func (s *MemoryStore) DeleteTask(_ context.Context, id model.ID) error {
 	defer s.mu.Unlock()
 
 	if _, ok := s.tasks[id]; !ok {
-		return fmt.Errorf("task not found: id=%d", id)
+		return fmt.Errorf("%w: task id=%d", ErrNotFound, id)
 	}
 
 	delete(s.tasks, id)

@@ -4,8 +4,12 @@ package response
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+
+	"fwupgrade/internal/config"
+	"fwupgrade/internal/store"
 )
 
 // Response 统一响应结构
@@ -108,6 +112,25 @@ func InternalErrorWithError(w http.ResponseWriter, err error) {
 		Message: "internal error",
 		Error:   err.Error(),
 	})
+}
+
+// WriteError 按错误类型将 service 错误映射为合适的 HTTP 响应。
+// 已知的可识别错误类型（not found / conflict / 配置文件缺失）返回对应语义的状态码，
+// 其余一律按 500 内部错误处理。避免"出任何错都 500、只能笼统提示"的问题。
+//
+// 映射规则：
+//   - store.ErrNotFound / config.ErrConfigFileNotFound -> 404
+//   - store.ErrConflict                              -> 409
+//   - 其它                                          -> 500
+func WriteError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, config.ErrConfigFileNotFound):
+		NotFound(w, err.Error())
+	case errors.Is(err, store.ErrConflict):
+		Conflict(w, err.Error())
+	default:
+		InternalError(w, err.Error())
+	}
 }
 
 // Paginated 返回分页成功响应

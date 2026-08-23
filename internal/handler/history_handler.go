@@ -32,7 +32,7 @@ func (h *HistoryHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	records, total, err := h.service.ListRecords(r.Context(), page, pageSize, status)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -49,7 +49,7 @@ func (h *HistoryHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	record, err := h.service.GetRecord(r.Context(), model.ID(id))
 	if err != nil {
-		response.NotFound(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -66,7 +66,7 @@ func (h *HistoryHandler) GetDeviceHistory(w http.ResponseWriter, r *http.Request
 
 	records, err := h.service.GetDeviceHistory(r.Context(), deviceID)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -83,7 +83,7 @@ func (h *HistoryHandler) GetTaskHistory(w http.ResponseWriter, r *http.Request) 
 
 	records, err := h.service.GetTaskHistory(r.Context(), model.ID(id))
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -95,7 +95,7 @@ func (h *HistoryHandler) GetRecent(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	records, err := h.service.GetRecentRecords(r.Context(), limit)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -111,7 +111,7 @@ func (h *HistoryHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.DeleteRecord(r.Context(), model.ID(id)); err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 

@@ -32,7 +32,7 @@ func (h *ProgressHandler) Report(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.ReportProgress(r.Context(), &req); err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -61,7 +61,7 @@ func (h *ProgressHandler) GetDeviceProgress(w http.ResponseWriter, r *http.Reque
 
 	device, err := h.service.GetDeviceProgress(r.Context(), deviceID)
 	if err != nil {
-		response.NotFound(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -78,7 +78,7 @@ func (h *ProgressHandler) GetTaskProgress(w http.ResponseWriter, r *http.Request
 
 	records, err := h.service.GetTaskProgress(r.Context(), model.ID(id))
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 

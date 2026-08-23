@@ -3,6 +3,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"fwupgrade/internal/config"
@@ -38,9 +39,12 @@ func (s *DeviceService) CreateDevice(ctx context.Context, req *model.CreateDevic
 	}
 
 	// 检查设备ID是否已存在
-	existing, _ := s.store.GetDeviceByDeviceID(ctx, req.DeviceID)
+	existing, existingErr := s.store.GetDeviceByDeviceID(ctx, req.DeviceID)
+	if existingErr != nil && !errors.Is(existingErr, store.ErrNotFound) {
+		return nil, fmt.Errorf("failed to check existing device: %w", existingErr)
+	}
 	if existing != nil {
-		return nil, fmt.Errorf("device with id '%s' already exists", req.DeviceID)
+		return nil, fmt.Errorf("%w: device with id '%s' already exists", store.ErrConflict, req.DeviceID)
 	}
 
 	d := model.NewDevice(req.DeviceID, req.ModelID, deviceModel.Name, req.Name, req.IPAddress, req.SerialNumber)

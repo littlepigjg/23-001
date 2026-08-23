@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -128,7 +129,12 @@ func loadConfig(configPath string) (*config.Config, error) {
 	if configPath != "" {
 		cfg, err := config.LoadFromFile(configPath)
 		if err != nil {
-			logger.Warnf("Failed to load config file, using defaults: %v", err)
+			// 区分"配置文件不存在"与其它加载失败，给出针对性提示而非笼统的"加载失败"。
+			if errors.Is(err, config.ErrConfigFileNotFound) {
+				logger.Warnf("Config file not found at %s, using defaults", configPath)
+			} else {
+				logger.Warnf("Failed to load config file (using defaults): %v", err)
+			}
 			return config.DefaultConfig(), nil
 		}
 		return cfg, nil

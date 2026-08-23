@@ -30,7 +30,7 @@ func (s *MemoryStore) GetRecordByID(_ context.Context, id model.ID) (*model.Upgr
 
 	r, ok := s.records[id]
 	if !ok {
-		return nil, fmt.Errorf("record not found: id=%d", id)
+		return nil, fmt.Errorf("%w: record id=%d", ErrNotFound, id)
 	}
 	return r, nil
 }
@@ -108,7 +108,7 @@ func (s *MemoryStore) UpdateRecord(_ context.Context, r *model.UpgradeRecord) er
 	defer s.mu.Unlock()
 
 	if _, ok := s.records[r.ID]; !ok {
-		return fmt.Errorf("record not found: id=%d", r.ID)
+		return fmt.Errorf("%w: record id=%d", ErrNotFound, r.ID)
 	}
 
 	s.records[r.ID] = r
@@ -122,7 +122,7 @@ func (s *MemoryStore) UpdateRecordStatus(_ context.Context, id model.ID, status 
 
 	r, ok := s.records[id]
 	if !ok {
-		return fmt.Errorf("record not found: id=%d", id)
+		return fmt.Errorf("%w: record id=%d", ErrNotFound, id)
 	}
 
 	r.Status = status
@@ -145,7 +145,7 @@ func (s *MemoryStore) DeleteRecord(_ context.Context, id model.ID) error {
 	defer s.mu.Unlock()
 
 	if _, ok := s.records[id]; !ok {
-		return fmt.Errorf("record not found: id=%d", id)
+		return fmt.Errorf("%w: record id=%d", ErrNotFound, id)
 	}
 
 	delete(s.records, id)

@@ -34,7 +34,7 @@ func (h *TaskHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	task, err := h.service.CreateTask(r.Context(), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -51,7 +51,7 @@ func (h *TaskHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	task, err := h.service.GetTask(r.Context(), model.ID(id))
 	if err != nil {
-		response.NotFound(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -66,7 +66,7 @@ func (h *TaskHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	tasks, total, err := h.service.ListTasks(r.Context(), page, pageSize, status)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -89,7 +89,7 @@ func (h *TaskHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	task, err := h.service.UpdateTask(r.Context(), model.ID(id), &req)
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -105,7 +105,7 @@ func (h *TaskHandler) Start(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.StartTask(r.Context(), model.ID(id)); err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -121,7 +121,7 @@ func (h *TaskHandler) Cancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.CancelTask(r.Context(), model.ID(id)); err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -137,7 +137,7 @@ func (h *TaskHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.service.DeleteTask(r.Context(), model.ID(id)); err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 
@@ -154,7 +154,7 @@ func (h *TaskHandler) GetProgress(w http.ResponseWriter, r *http.Request) {
 
 	task, err := h.service.GetTaskProgress(r.Context(), model.ID(id))
 	if err != nil {
-		response.InternalError(w, err.Error())
+		response.WriteError(w, err)
 		return
 	}
 

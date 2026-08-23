@@ -62,9 +62,13 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 	}
 
 	// 检查版本是否已存在
-	existing, _ := s.store.GetFirmwareByVersion(ctx, req.ModelID, req.Version)
+	existing, existingErr := s.store.GetFirmwareByVersion(ctx, req.ModelID, req.Version)
+	if existingErr != nil && !errors.Is(existingErr, store.ErrNotFound) {
+		return nil, fmt.Errorf("failed to check existing firmware version: %w", existingErr)
+	}
 	if existing != nil {
-		return nil, fmt.Errorf("firmware version '%s' already exists for model '%s'", req.Version, m.Name)
+		return nil, fmt.Errorf("%w: firmware version '%s' already exists for model '%s'",
+			store.ErrConflict, req.Version, m.Name)
 	}
 
 	// 保存固件文件
@@ -233,17 +237,21 @@ func (s *FirmwareService) UploadFirmwareWithConfig(ctx context.Context, configPa
 	}()
 
 	if int64(len(fileData)) > s.config.Firmware.MaxFileSize {
-		return nil, fmt.Errorf("file size exceeds max config size: %w", err)
+		return nil, fmt.Errorf("file size exceeds max config size: %d bytes", s.config.Firmware.MaxFileSize)
 	}
 
 	ext := filepath.Ext(originalFilename)
 	if !s.config.IsAllowedExt(ext) {
-		return nil, fmt.Errorf("file extension blocked: %w", err)
+		return nil, fmt.Errorf("file extension '%s' is not allowed", ext)
 	}
 
-	existing, _ := s.store.GetFirmwareByVersion(ctx, req.ModelID, req.Version)
+	existing, existingErr := s.store.GetFirmwareByVersion(ctx, req.ModelID, req.Version)
+	if existingErr != nil && !errors.Is(existingErr, store.ErrNotFound) {
+		return nil, fmt.Errorf("failed to check existing firmware version: %w", existingErr)
+	}
 	if existing != nil {
-		return nil, fmt.Errorf("firmware version already exists: %w", err)
+		return nil, fmt.Errorf("%w: firmware version '%s' already exists for model %d",
+			store.ErrConflict, req.Version, req.ModelID)
 	}
 
 	fw, err := s.UploadFirmware(ctx, req, fileData, originalFilename)
@@ -272,7 +280,7 @@ func (s *FirmwareService) ValidateAndPrepareUpload(ctx context.Context, configPa
 	}
 
 	if cfg.Firmware.MaxFileSize <= 0 {
-		return nil, fmt.Errorf("prepare: invalid max file size: %w", err)
+		return nil, fmt.Errorf("prepare: invalid max file size: %d", cfg.Firmware.MaxFileSize)
 	}
 
 	return cfg, nil
@@ -296,7 +304,7 @@ func NewFirmwareServiceFromConfig(store store.FirmwareStore, modelStore store.De
 	}
 
 	if cfg.Storage.Type == "" {
-		return nil, fmt.Errorf("config storage type empty: %w", err)
+		return nil, fmt.Errorf("config storage type empty")
 	}
 
 	return NewFirmwareService(store, modelStore, cfg), nil

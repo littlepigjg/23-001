@@ -79,7 +79,7 @@ func (s *MemoryStore) CreateModel(_ context.Context, m *model.DeviceModel) error
 
 	// 检查名称是否重复
 	if _, exists := s.modelNameIndex[m.Name]; exists {
-		return fmt.Errorf("model with name '%s' already exists", m.Name)
+		return fmt.Errorf("%w: model with name '%s' already exists", ErrConflict, m.Name)
 	}
 
 	id := s.nextID()
@@ -97,7 +97,7 @@ func (s *MemoryStore) GetModelByID(_ context.Context, id model.ID) (*model.Devic
 
 	m, ok := s.models[id]
 	if !ok {
-		return nil, fmt.Errorf("model not found: id=%d", id)
+		return nil, fmt.Errorf("%w: model id=%d", ErrNotFound, id)
 	}
 	return m, nil
 }
@@ -109,7 +109,7 @@ func (s *MemoryStore) GetModelByName(_ context.Context, name string) (*model.Dev
 
 	id, ok := s.modelNameIndex[name]
 	if !ok {
-		return nil, fmt.Errorf("model not found: name=%s", name)
+		return nil, fmt.Errorf("%w: model name=%s", ErrNotFound, name)
 	}
 	return s.models[id], nil
 }
@@ -169,13 +169,13 @@ func (s *MemoryStore) UpdateModel(_ context.Context, m *model.DeviceModel) error
 
 	existing, ok := s.models[m.ID]
 	if !ok {
-		return fmt.Errorf("model not found: id=%d", m.ID)
+		return fmt.Errorf("%w: model id=%d", ErrNotFound, m.ID)
 	}
 
 	// 如果名称改变，更新索引
 	if existing.Name != m.Name {
 		if _, exists := s.modelNameIndex[m.Name]; exists {
-			return fmt.Errorf("model with name '%s' already exists", m.Name)
+			return fmt.Errorf("%w: model with name '%s' already exists", ErrConflict, m.Name)
 		}
 		delete(s.modelNameIndex, existing.Name)
 		s.modelNameIndex[m.Name] = m.ID
@@ -201,13 +201,13 @@ func (s *MemoryStore) DeleteModel(_ context.Context, id model.ID) error {
 
 	m, ok := s.models[id]
 	if !ok {
-		return fmt.Errorf("model not found: id=%d", id)
+		return fmt.Errorf("%w: model id=%d", ErrNotFound, id)
 	}
 
 	// 检查是否有设备使用此型号
 	for _, d := range s.devices {
 		if d.ModelID == id {
-			return fmt.Errorf("cannot delete model: model has devices")
+			return fmt.Errorf("%w: cannot delete model: model has devices", ErrConflict)
 		}
 	}
 
@@ -250,7 +250,7 @@ func (s *MemoryStore) CreateDevice(_ context.Context, d *model.Device) error {
 
 	// 检查设备ID是否重复
 	if _, exists := s.deviceIDIndex[d.DeviceID]; exists {
-		return fmt.Errorf("device with id '%s' already exists", d.DeviceID)
+		return fmt.Errorf("%w: device with id '%s' already exists", ErrConflict, d.DeviceID)
 	}
 
 	id := s.nextID()
@@ -273,7 +273,7 @@ func (s *MemoryStore) GetDeviceByID(_ context.Context, id model.ID) (*model.Devi
 
 	d, ok := s.devices[id]
 	if !ok {
-		return nil, fmt.Errorf("device not found: id=%d", id)
+		return nil, fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 	return d, nil
 }
@@ -285,7 +285,7 @@ func (s *MemoryStore) GetDeviceByDeviceID(_ context.Context, deviceID string) (*
 
 	id, ok := s.deviceIDIndex[deviceID]
 	if !ok {
-		return nil, fmt.Errorf("device not found: device_id=%s", deviceID)
+		return nil, fmt.Errorf("%w: device device_id=%s", ErrNotFound, deviceID)
 	}
 	return s.devices[id], nil
 }
@@ -376,7 +376,7 @@ func (s *MemoryStore) UpdateDevice(_ context.Context, d *model.Device) error {
 	defer s.mu.Unlock()
 
 	if _, ok := s.devices[d.ID]; !ok {
-		return fmt.Errorf("device not found: id=%d", d.ID)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, d.ID)
 	}
 
 	s.devices[d.ID] = d
@@ -390,7 +390,7 @@ func (s *MemoryStore) UpdateDeviceStatus(_ context.Context, id model.ID, status 
 
 	d, ok := s.devices[id]
 	if !ok {
-		return fmt.Errorf("device not found: id=%d", id)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 
 	d.Status = status
@@ -405,7 +405,7 @@ func (s *MemoryStore) UpdateDeviceLastSeen(_ context.Context, id model.ID) error
 
 	d, ok := s.devices[id]
 	if !ok {
-		return fmt.Errorf("device not found: id=%d", id)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 
 	d.LastSeenAt = time.Now()
@@ -419,7 +419,7 @@ func (s *MemoryStore) UpdateDeviceProgress(_ context.Context, id model.ID, progr
 
 	d, ok := s.devices[id]
 	if !ok {
-		return fmt.Errorf("device not found: id=%d", id)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 
 	d.UpgradeProgress = progress
@@ -437,7 +437,7 @@ func (s *MemoryStore) DeleteDevice(_ context.Context, id model.ID) error {
 
 	d, ok := s.devices[id]
 	if !ok {
-		return fmt.Errorf("device not found: id=%d", id)
+		return fmt.Errorf("%w: device id=%d", ErrNotFound, id)
 	}
 
 	delete(s.devices, id)

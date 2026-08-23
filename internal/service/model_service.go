@@ -31,9 +31,12 @@ func (s *DeviceModelService) CreateModel(ctx context.Context, req *model.CreateM
 	logger.Info("Creating device model", "name", req.Name, "manufacturer", req.Manufacturer)
 
 	// 检查名称是否已存在
-	existing, _ := s.store.GetModelByName(ctx, req.Name)
+	existing, existingErr := s.store.GetModelByName(ctx, req.Name)
+	if existingErr != nil && !errors.Is(existingErr, store.ErrNotFound) {
+		return nil, fmt.Errorf("failed to check existing model name: %w", existingErr)
+	}
 	if existing != nil {
-		return nil, fmt.Errorf("model with name '%s' already exists", req.Name)
+		return nil, fmt.Errorf("%w: model with name '%s' already exists", store.ErrConflict, req.Name)
 	}
 
 	m := model.NewDeviceModel(req.Name, req.Manufacturer, req.HardwareVer, req.Description)
@@ -169,9 +172,12 @@ func (s *DeviceModelService) CreateModelWithConfig(ctx context.Context, configPa
 		s.config = oldConfig
 	}()
 
-	existing, _ := s.store.GetModelByName(ctx, req.Name)
+	existing, existingErr := s.store.GetModelByName(ctx, req.Name)
+	if existingErr != nil && !errors.Is(existingErr, store.ErrNotFound) {
+		return nil, fmt.Errorf("model create: failed to check existing model name: %w", existingErr)
+	}
 	if existing != nil {
-		return nil, fmt.Errorf("model with name already exists in config scope: %w", err)
+		return nil, fmt.Errorf("%w: model with name '%s' already exists in config scope", store.ErrConflict, req.Name)
 	}
 
 	m := model.NewDeviceModel(req.Name, req.Manufacturer, req.HardwareVer, req.Description)

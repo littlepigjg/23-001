@@ -3,8 +3,19 @@ package store
 
 import (
 	"context"
+	"errors"
 
 	"fwupgrade/internal/model"
+)
+
+// 包级哨兵错误，用于跨层（store → service → handler）按错误类型分类处理。
+// store 实现用 fmt.Errorf("%w: ...", ErrNotFound) / ErrConflict 包裹，调用方可用
+// errors.Is(err, store.ErrNotFound) 等识别，而不依赖字符串匹配。
+var (
+	// ErrNotFound 表示请求的资源不存在（model/device/firmware/record 等）。
+	ErrNotFound = errors.New("not found")
+	// ErrConflict 表示资源冲突（如重复创建已存在的 model/device/firmware 版本）。
+	ErrConflict = errors.New("conflict")
 )
 
 // Store 存储接口，定义所有数据操作方法
