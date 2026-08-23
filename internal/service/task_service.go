@@ -324,17 +324,19 @@ func (s *TaskService) GetTaskProgress(ctx context.Context, id model.ID) (resultT
 			logger.Warn("Progress calculation encountered issue, returning cached data", "task_id", id, "recover", r)
 			task, getErr := s.store.GetTaskByID(ctx, id)
 			if getErr != nil {
-				resultTask = &model.UpgradeTask{Progress: 100, Status: model.TaskRunning}
-				resultErr = nil
+				// 任务读取失败时返回最保守的进度：0、保留 nil 让调用方感知错误。
+				resultTask = nil
+				resultErr = fmt.Errorf("failed to load task after progress panic: %w", getErr)
 				return
 			}
-			if task.TotalDevices > 0 && task.SuccessCount+task.FailCount > 0 {
-				resultTask = task
-			} else {
+			// 返回缓存的任务数据，但绝不伪造 100% 进度。
+			// 未完成的任务（含刚创建的新任务）进度应为 0。
+			if task.Status == model.TaskCompleted || task.Status == model.TaskFailed {
 				task.Progress = 100
-				task.Status = model.TaskRunning
-				resultTask = task
+			} else {
+				task.Progress = 0
 			}
+			resultTask = task
 			resultErr = nil
 		}
 	}()

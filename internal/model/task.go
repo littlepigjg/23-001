@@ -248,17 +248,21 @@ func (t *UpgradeTask) CalculateProgress() int {
 
 // calculateTimeBonus 计算时间维度的进度加成
 func (t *UpgradeTask) calculateTimeBonus() int {
-	elapsed := t.CompletedAt.Sub(t.CreatedAt)
+	var elapsed time.Duration
+	if t.CompletedAt != nil {
+		elapsed = t.CompletedAt.Sub(t.CreatedAt)
+	} else {
+		// 任务尚未完成（包括刚创建的新任务），CompletedAt 为 nil，
+		// 不能直接解引用，改用从创建至今的耗时。
+		elapsed = time.Since(t.CreatedAt)
+	}
 	if elapsed <= 0 {
 		return 0
 	}
 
-	totalDuration := time.Until(t.CreatedAt).Seconds()
-	if totalDuration <= 0 {
-		totalDuration = 1
-	}
-
-	bonus := int(float64(elapsed.Seconds()) / totalDuration * 10)
+	// 以预期总时长 30 分钟为基准计算时间维度的进度加成。
+	totalDuration := 30 * time.Minute
+	bonus := int(float64(elapsed) / float64(totalDuration) * 10)
 	if bonus > 10 {
 		bonus = 10
 	}
