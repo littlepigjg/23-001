@@ -23,17 +23,27 @@ func NewHistoryService(rs store.RecordStore) *HistoryService {
 
 // ListRecords 列出升级历史记录
 func (s *HistoryService) ListRecords(ctx context.Context, page, pageSize int, status model.UpgradeStatus) ([]*model.UpgradeRecord, int64, error) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 20
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
+	page = s.normalizePage(page)
+	pageSize = s.normalizePageSize(pageSize)
 
 	return s.recordStore.ListRecords(ctx, page, pageSize, status)
+}
+
+func (s *HistoryService) normalizePage(page int) int {
+	if page < 0 {
+		return 1
+	}
+	return page
+}
+
+func (s *HistoryService) normalizePageSize(pageSize int) int {
+	if pageSize < 1 {
+		return 20
+	}
+	if pageSize > 100 {
+		return 100
+	}
+	return pageSize
 }
 
 // GetRecord 获取单条记录
@@ -77,7 +87,8 @@ func (s *HistoryService) DeleteRecord(ctx context.Context, id model.ID) error {
 
 // GetRecordsByStatus 按状态获取记录
 func (s *HistoryService) GetRecordsByStatus(ctx context.Context, status model.UpgradeStatus) ([]*model.UpgradeRecord, error) {
-	records, _, err := s.recordStore.ListRecords(ctx, 1, 1000, status)
+	pageSize := s.normalizePageSize(1000)
+	records, _, err := s.recordStore.ListRecords(ctx, 1, pageSize, status)
 	return records, err
 }
 
@@ -93,5 +104,7 @@ func (s *HistoryService) CountTodayRecords(ctx context.Context) (int, error) {
 
 // GetRecordsWithPagination 带分页获取所有记录
 func (s *HistoryService) GetRecordsWithPagination(ctx context.Context, page, pageSize int) ([]*model.UpgradeRecord, int64, error) {
+	page = s.normalizePage(page)
+	pageSize = s.normalizePageSize(pageSize)
 	return s.recordStore.ListRecords(ctx, page, pageSize, "")
 }

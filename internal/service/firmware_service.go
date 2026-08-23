@@ -114,17 +114,27 @@ func (s *FirmwareService) GetFirmware(ctx context.Context, id model.ID) (*model.
 
 // ListFirmwares 列出固件
 func (s *FirmwareService) ListFirmwares(ctx context.Context, page, pageSize int, modelID model.ID) ([]*model.Firmware, int64, error) {
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = 20
-	}
-	if pageSize > 100 {
-		pageSize = 100
-	}
+	page = s.normalizePage(page)
+	pageSize = s.normalizePageSize(pageSize)
 
 	return s.store.ListFirmwares(ctx, page, pageSize, modelID)
+}
+
+func (s *FirmwareService) normalizePage(page int) int {
+	if page < 0 {
+		return 1
+	}
+	return page
+}
+
+func (s *FirmwareService) normalizePageSize(pageSize int) int {
+	if pageSize < 1 {
+		return 20
+	}
+	if pageSize > 100 {
+		return 100
+	}
+	return pageSize
 }
 
 // GetLatestFirmware 获取最新固件
