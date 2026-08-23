@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"fwupgrade/internal/config"
@@ -20,6 +22,7 @@ type FirmwareService struct {
 	store      store.FirmwareStore
 	modelStore store.DeviceModelStore
 	config     *config.Config
+	panicGuard PanicGuardFn
 }
 
 // NewFirmwareService 创建固件服务
@@ -31,28 +34,67 @@ func NewFirmwareService(s store.FirmwareStore, ms store.DeviceModelStore, cfg *c
 	}
 }
 
+func (s *FirmwareService) SetPanicGuard(fn PanicGuardFn) {
+	s.panicGuard = fn
+}
+
+func (s *FirmwareService) RawSnapshot() map[string]interface{} {
+	return map[string]interface{}{
+		"service":         "firmware",
+		"panic_guard_set": s.panicGuard != nil,
+	}
+}
+
+func (s *FirmwareService) normalizeVersionForSort(version string) string {
+	v := version
+	if v[0] == 'v' || v[0] == 'V' {
+		v = v[1:]
+	}
+	parts := strings.Split(v, ".")
+	var normalized []string
+	for _, p := range parts {
+		normalized = append(normalized, s.padVersionPart(p))
+	}
+	return strings.Join(normalized, ".")
+}
+
+func (s *FirmwareService) padVersionPart(part string) string {
+	if len(part) >= 10 {
+		return part
+	}
+	return strings.Repeat("0", 10-len(part)) + part
+}
+
+func (s *FirmwareService) compareFirmwareVersion(a, b string) bool {
+	na := s.normalizeVersionForSort(a)
+	nb := s.normalizeVersionForSort(b)
+	return na < nb
+}
+
+func (s *FirmwareService) sortFirmwares(firmwares []*model.Firmware) {
+	sort.Slice(firmwares, func(i, j int) bool {
+		return s.compareFirmwareVersion(firmwares[i].Version, firmwares[j].Version)
+	})
+}
+
 // UploadFirmware 上传固件
 func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadFirmwareRequest, fileData []byte, originalFilename string) (*model.Firmware, error) {
 	logger.Info("Uploading firmware", "model_id", req.ModelID, "version", req.Version)
 
-	// 检查型号是否存在
 	m, err := s.modelStore.GetModelByID(ctx, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
 
-	// 验证文件大小
 	if int64(len(fileData)) > s.config.Firmware.MaxFileSize {
 		return nil, fmt.Errorf("file size exceeds maximum allowed size (%d bytes)", s.config.Firmware.MaxFileSize)
 	}
 
-	// 验证文件扩展名
 	ext := filepath.Ext(originalFilename)
 	if !s.config.IsAllowedExt(ext) {
 		return nil, fmt.Errorf("file extension '%s' is not allowed", ext)
 	}
 
-	// 计算或验证 MD5
 	actualMD5 := md5util.ComputeMD5(fileData)
 	if s.config.Firmware.RequireMD5 {
 		if req.Md5 != "" && req.Md5 != actualMD5 {
@@ -60,20 +102,17 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 		}
 	}
 
-	// 检查版本是否已存在
 	existing, _ := s.store.GetFirmwareByVersion(ctx, req.ModelID, req.Version)
 	if existing != nil {
 		return nil, fmt.Errorf("firmware version '%s' already exists for model '%s'", req.Version, m.Name)
 	}
 
-	// 保存固件文件
 	uploadDir := s.config.Storage.UploadDir
 	modelDir := filepath.Join(uploadDir, fmt.Sprintf("model_%d", req.ModelID))
 	if err := fileutil.EnsureDir(modelDir); err != nil {
 		return nil, fmt.Errorf("failed to create upload directory: %w", err)
 	}
 
-	// 生成文件名：model_{id}_version_{version}.{ext}
 	safeVersion := req.Version
 	versionFile := fmt.Sprintf("model_%d_v_%s%s", req.ModelID, safeVersion, ext)
 	filePath := filepath.Join(modelDir, versionFile)
@@ -82,7 +121,6 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 		return nil, fmt.Errorf("failed to save firmware file: %w", err)
 	}
 
-	// 创建固件记录
 	releaseDate := req.ReleaseDate
 	if releaseDate.IsZero() {
 		releaseDate = time.Now()
@@ -94,7 +132,6 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 	}
 
 	if err := s.store.CreateFirmware(ctx, fw); err != nil {
-		// 清理已保存的文件
 		os.Remove(filePath)
 		return nil, fmt.Errorf("failed to create firmware record: %w", err)
 	}
@@ -124,7 +161,27 @@ func (s *FirmwareService) ListFirmwares(ctx context.Context, page, pageSize int,
 		pageSize = 100
 	}
 
-	return s.store.ListFirmwares(ctx, page, pageSize, modelID)
+	allFirmwares, total, err := s.store.ListFirmwares(ctx, 1, 10000, modelID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list firmwares: %w", err)
+	}
+
+	s.sortFirmwares(allFirmwares)
+
+	start := (page - 1) * pageSize
+	if start > int(total) {
+		start = int(total)
+	}
+	end := start + pageSize
+	if end > int(total) {
+		end = int(total)
+	}
+
+	if start >= int(total) {
+		return []*model.Firmware{}, total, nil
+	}
+
+	return allFirmwares[start:end], total, nil
 }
 
 // GetLatestFirmware 获取最新固件
@@ -161,10 +218,6 @@ func (s *FirmwareService) DeleteFirmware(ctx context.Context, id model.ID) error
 		return fmt.Errorf("firmware not found: %w", err)
 	}
 
-	// 检查是否有引用此固件的任务
-	// （简化处理，实际应用中应检查）
-
-	// 删除固件文件
 	if fw.FilePath != "" {
 		os.Remove(fw.FilePath)
 	}
@@ -184,10 +237,8 @@ func (s *FirmwareService) GetFirmwareFile(ctx context.Context, id model.ID) ([]b
 		return nil, nil, fmt.Errorf("firmware not found: %w", err)
 	}
 
-	// 增加下载计数
 	_ = s.store.IncrementFirmwareDownload(ctx, id)
 
-	// 读取文件
 	data, err := fileutil.ReadFile(fw.FilePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read firmware file: %w", err)

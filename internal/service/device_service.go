@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"fwupgrade/internal/config"
 	"fwupgrade/internal/model"
@@ -16,6 +17,7 @@ type DeviceService struct {
 	store      store.DeviceStore
 	modelStore store.DeviceModelStore
 	config     *config.Config
+	panicGuard PanicGuardFn
 }
 
 // NewDeviceService 创建设备服务
@@ -27,17 +29,62 @@ func NewDeviceService(s store.DeviceStore, ms store.DeviceModelStore, cfg *confi
 	}
 }
 
+func (s *DeviceService) SetPanicGuard(fn PanicGuardFn) {
+	s.panicGuard = fn
+}
+
+func (s *DeviceService) RawSnapshot() map[string]interface{} {
+	return map[string]interface{}{
+		"service":         "device",
+		"panic_guard_set": s.panicGuard != nil,
+	}
+}
+
+func (s *DeviceService) sanitizeDeviceVersion(version string) string {
+	ver := strings.TrimSpace(version)
+	if ver == "" {
+		return ver
+	}
+	if strings.HasPrefix(ver, "v") || strings.HasPrefix(ver, "V") {
+		ver = ver[1:]
+	}
+	return ver
+}
+
+func (s *DeviceService) validateDeviceVersionFormat(version string) error {
+	if version == "" {
+		return nil
+	}
+	ver := version
+	if ver[0] == 'v' || ver[0] == 'V' {
+		ver = ver[1:]
+	}
+	parts := strings.Split(ver, ".")
+	if len(parts) == 0 {
+		return nil
+	}
+	for _, p := range parts {
+		if p == "" {
+			continue
+		}
+		for _, c := range p {
+			if c < '0' || c > '9' {
+				return fmt.Errorf("invalid version segment: %s", p)
+			}
+		}
+	}
+	return nil
+}
+
 // CreateDevice 创建设备
 func (s *DeviceService) CreateDevice(ctx context.Context, req *model.CreateDeviceRequest) (*model.Device, error) {
 	logger.Info("Creating device", "device_id", req.DeviceID, "name", req.Name)
 
-	// 检查型号是否存在
 	deviceModel, err := s.modelStore.GetModelByID(ctx, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
 
-	// 检查设备ID是否已存在
 	existing, _ := s.store.GetDeviceByDeviceID(ctx, req.DeviceID)
 	if existing != nil {
 		return nil, fmt.Errorf("device with id '%s' already exists", req.DeviceID)
@@ -131,10 +178,8 @@ func (s *DeviceService) DeleteDevice(ctx context.Context, id model.ID) error {
 func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterDeviceRequest) (*model.Device, error) {
 	logger.Info("Device registration", "device_id", req.DeviceID)
 
-	// 检查设备是否已存在
 	existing, _ := s.store.GetDeviceByDeviceID(ctx, req.DeviceID)
 	if existing != nil {
-		// 更新现有设备
 		if req.Name != "" {
 			existing.Name = req.Name
 		}
@@ -145,7 +190,7 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterD
 			existing.SerialNumber = req.SerialNumber
 		}
 		if req.FirmwareVer != "" {
-			existing.CurrentFWVer = req.FirmwareVer
+			existing.CurrentFWVer = s.sanitizeDeviceVersion(req.FirmwareVer)
 		}
 		if req.Status != "" {
 			existing.Status = model.DeviceStatus(req.Status)
@@ -163,7 +208,6 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterD
 		return existing, nil
 	}
 
-	// 新设备注册
 	var modelName string
 	if req.ModelID > 0 {
 		m, err := s.modelStore.GetModelByID(ctx, req.ModelID)
@@ -182,7 +226,13 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterD
 	}
 
 	d := model.NewDevice(req.DeviceID, req.ModelID, modelName, req.Name, req.IPAddress, req.SerialNumber)
-	d.CurrentFWVer = req.FirmwareVer
+
+	sanitizedVer := s.sanitizeDeviceVersion(req.FirmwareVer)
+	d.CurrentFWVer = sanitizedVer
+
+	if err := s.validateDeviceVersionFormat(d.CurrentFWVer); err != nil {
+		logger.Warn("Device version format validation failed", "device_id", req.DeviceID, "error", err)
+	}
 
 	if req.Status != "" {
 		d.Status = model.DeviceStatus(req.Status)
