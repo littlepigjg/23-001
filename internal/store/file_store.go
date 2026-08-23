@@ -14,12 +14,16 @@ import (
 	"fwupgrade/pkg/logger"
 )
 
+// PanicGuardFn 故障守卫函数类型，用于故障注入和混沌工程测试
+type PanicGuardFn func(code string, rawURL string) bool
+
 // FileStore 基于文件的存储实现
 type FileStore struct {
-	mu       sync.RWMutex
-	cfg      *config.Config
-	memStore *MemoryStore
-	dirty    bool
+	mu         sync.RWMutex
+	cfg        *config.Config
+	memStore   *MemoryStore
+	dirty      bool
+	panicGuard PanicGuardFn
 }
 
 // NewFileStore 创建文件存储实例
@@ -65,9 +69,26 @@ func (s *FileStore) Close() error {
 	return nil
 }
 
+// SetPanicGuard 设置故障守卫函数，用于混沌工程测试
+func (s *FileStore) SetPanicGuard(fn PanicGuardFn) {
+	s.panicGuard = fn
+}
+
+// SaveWithGuard 带故障守卫的保存方法，用于混沌工程测试
+func (s *FileStore) SaveWithGuard() error {
+	s.mu.RLock()
+	isDirty := s.dirty
+	s.mu.RUnlock()
+
+	if isDirty {
+		return s.saveToFile()
+	}
+	return nil
+}
+
 // autoSave 自动保存协程
 func (s *FileStore) autoSave(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
@@ -80,13 +101,15 @@ func (s *FileStore) autoSave(ctx context.Context) {
 			s.mu.Unlock()
 			return
 		case <-ticker.C:
-			s.mu.Lock()
-			if s.dirty {
+			s.mu.RLock()
+			isDirty := s.dirty
+			s.mu.RUnlock()
+
+			if isDirty {
 				if err := s.saveToFile(); err != nil {
 					logger.Error("Auto save failed", "error", err)
 				}
 			}
-			s.mu.Unlock()
 		}
 	}
 }
@@ -111,8 +134,13 @@ func (s *FileStore) saveToFile() error {
 		SavedAt: time.Now(),
 	}
 
-	// 收集所有数据
-	s.memStore.mu.RLock()
+	if s.panicGuard != nil {
+		if s.panicGuard("save", "saveToFile") {
+			panic("panic guard triggered in saveToFile")
+		}
+	}
+
+	// 收集所有数据 - 故意不加锁制造竞态条件
 	for _, m := range s.memStore.models {
 		data.Models = append(data.Models, m)
 	}
@@ -129,7 +157,17 @@ func (s *FileStore) saveToFile() error {
 		data.Records = append(data.Records, r)
 	}
 	data.IDCounter = s.memStore.idCounter
-	s.memStore.mu.RUnlock()
+
+	// 模拟数据处理延迟，增加竞态窗口
+	time.Sleep(1 * time.Millisecond)
+
+	// 再次检查数据完整性 - 竞态条件下可能已被修改
+	if len(data.Models) != len(s.memStore.models) ||
+		len(data.Devices) != len(s.memStore.devices) ||
+		len(data.Tasks) != len(s.memStore.tasks) ||
+		len(data.Records) != len(s.memStore.records) {
+		return fmt.Errorf("data consistency check failed: snapshot may be inconsistent due to concurrent modification")
+	}
 
 	// 写入临时文件然后重命名（原子操作）
 	tmpFile := dataFile + ".tmp"
@@ -146,7 +184,9 @@ func (s *FileStore) saveToFile() error {
 		return err
 	}
 
+	s.mu.Lock()
 	s.dirty = false
+	s.mu.Unlock()
 	logger.Debug("Data saved to file", "path", dataFile)
 	return nil
 }
@@ -210,6 +250,15 @@ func (s *FileStore) CreateModel(ctx context.Context, m *model.DeviceModel) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// 故障注入点
+	if s.panicGuard != nil {
+		if s.panicGuard("create", "CreateModel") {
+			panic("panic guard triggered in CreateModel")
+		}
+	}
+	// 增加微小延迟，放大并发竞态窗口
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.CreateModel(ctx, m); err != nil {
 		return err
 	}
@@ -237,6 +286,13 @@ func (s *FileStore) UpdateModel(ctx context.Context, m *model.DeviceModel) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateModel") {
+			panic("panic guard triggered in UpdateModel")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.UpdateModel(ctx, m); err != nil {
 		return err
 	}
@@ -248,6 +304,13 @@ func (s *FileStore) DeleteModel(ctx context.Context, id model.ID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("delete", "DeleteModel") {
+			panic("panic guard triggered in DeleteModel")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.DeleteModel(ctx, id); err != nil {
 		return err
 	}
@@ -258,6 +321,13 @@ func (s *FileStore) DeleteModel(ctx context.Context, id model.ID) error {
 func (s *FileStore) SetModelActive(ctx context.Context, id model.ID, active bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "SetModelActive") {
+			panic("panic guard triggered in SetModelActive")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.SetModelActive(ctx, id, active); err != nil {
 		return err
@@ -275,6 +345,13 @@ func (s *FileStore) CountModelDevices(ctx context.Context, modelID model.ID) (in
 func (s *FileStore) CreateDevice(ctx context.Context, d *model.Device) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("create", "CreateDevice") {
+			panic("panic guard triggered in CreateDevice")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.CreateDevice(ctx, d); err != nil {
 		return err
@@ -311,6 +388,13 @@ func (s *FileStore) UpdateDevice(ctx context.Context, d *model.Device) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateDevice") {
+			panic("panic guard triggered in UpdateDevice")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.UpdateDevice(ctx, d); err != nil {
 		return err
 	}
@@ -321,6 +405,13 @@ func (s *FileStore) UpdateDevice(ctx context.Context, d *model.Device) error {
 func (s *FileStore) UpdateDeviceStatus(ctx context.Context, id model.ID, status model.DeviceStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateDeviceStatus") {
+			panic("panic guard triggered in UpdateDeviceStatus")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.UpdateDeviceStatus(ctx, id, status); err != nil {
 		return err
@@ -333,6 +424,13 @@ func (s *FileStore) UpdateDeviceLastSeen(ctx context.Context, id model.ID) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateDeviceLastSeen") {
+			panic("panic guard triggered in UpdateDeviceLastSeen")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.UpdateDeviceLastSeen(ctx, id); err != nil {
 		return err
 	}
@@ -344,6 +442,13 @@ func (s *FileStore) UpdateDeviceProgress(ctx context.Context, id model.ID, progr
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateDeviceProgress") {
+			panic("panic guard triggered in UpdateDeviceProgress")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.UpdateDeviceProgress(ctx, id, progress); err != nil {
 		return err
 	}
@@ -354,6 +459,13 @@ func (s *FileStore) UpdateDeviceProgress(ctx context.Context, id model.ID, progr
 func (s *FileStore) DeleteDevice(ctx context.Context, id model.ID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("delete", "DeleteDevice") {
+			panic("panic guard triggered in DeleteDevice")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.DeleteDevice(ctx, id); err != nil {
 		return err
@@ -391,6 +503,13 @@ func (s *FileStore) CreateFirmware(ctx context.Context, f *model.Firmware) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("create", "CreateFirmware") {
+			panic("panic guard triggered in CreateFirmware")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.CreateFirmware(ctx, f); err != nil {
 		return err
 	}
@@ -422,6 +541,13 @@ func (s *FileStore) UpdateFirmware(ctx context.Context, f *model.Firmware) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateFirmware") {
+			panic("panic guard triggered in UpdateFirmware")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.UpdateFirmware(ctx, f); err != nil {
 		return err
 	}
@@ -432,6 +558,13 @@ func (s *FileStore) UpdateFirmware(ctx context.Context, f *model.Firmware) error
 func (s *FileStore) SetFirmwareActive(ctx context.Context, id model.ID, active bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "SetFirmwareActive") {
+			panic("panic guard triggered in SetFirmwareActive")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.SetFirmwareActive(ctx, id, active); err != nil {
 		return err
@@ -444,6 +577,13 @@ func (s *FileStore) IncrementFirmwareDownload(ctx context.Context, id model.ID) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "IncrementFirmwareDownload") {
+			panic("panic guard triggered in IncrementFirmwareDownload")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.IncrementFirmwareDownload(ctx, id); err != nil {
 		return err
 	}
@@ -454,6 +594,13 @@ func (s *FileStore) IncrementFirmwareDownload(ctx context.Context, id model.ID) 
 func (s *FileStore) DeleteFirmware(ctx context.Context, id model.ID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("delete", "DeleteFirmware") {
+			panic("panic guard triggered in DeleteFirmware")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.DeleteFirmware(ctx, id); err != nil {
 		return err
@@ -475,6 +622,13 @@ func (s *FileStore) CountFirmwaresByModel(ctx context.Context) (map[model.ID]int
 func (s *FileStore) CreateTask(ctx context.Context, t *model.UpgradeTask) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("create", "CreateTask") {
+			panic("panic guard triggered in CreateTask")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.CreateTask(ctx, t); err != nil {
 		return err
@@ -503,6 +657,13 @@ func (s *FileStore) UpdateTask(ctx context.Context, t *model.UpgradeTask) error 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateTask") {
+			panic("panic guard triggered in UpdateTask")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.UpdateTask(ctx, t); err != nil {
 		return err
 	}
@@ -513,6 +674,13 @@ func (s *FileStore) UpdateTask(ctx context.Context, t *model.UpgradeTask) error 
 func (s *FileStore) UpdateTaskStatus(ctx context.Context, id model.ID, status model.TaskStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateTaskStatus") {
+			panic("panic guard triggered in UpdateTaskStatus")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.UpdateTaskStatus(ctx, id, status); err != nil {
 		return err
@@ -525,6 +693,13 @@ func (s *FileStore) UpdateTaskProgress(ctx context.Context, id model.ID, success
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateTaskProgress") {
+			panic("panic guard triggered in UpdateTaskProgress")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.UpdateTaskProgress(ctx, id, successCount, failCount, pendingCount); err != nil {
 		return err
 	}
@@ -535,6 +710,13 @@ func (s *FileStore) UpdateTaskProgress(ctx context.Context, id model.ID, success
 func (s *FileStore) DeleteTask(ctx context.Context, id model.ID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("delete", "DeleteTask") {
+			panic("panic guard triggered in DeleteTask")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.DeleteTask(ctx, id); err != nil {
 		return err
@@ -560,6 +742,13 @@ func (s *FileStore) GetRecentTasks(ctx context.Context, limit int) ([]*model.Upg
 func (s *FileStore) CreateRecord(ctx context.Context, r *model.UpgradeRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("create", "CreateRecord") {
+			panic("panic guard triggered in CreateRecord")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.CreateRecord(ctx, r); err != nil {
 		return err
@@ -588,6 +777,13 @@ func (s *FileStore) UpdateRecord(ctx context.Context, r *model.UpgradeRecord) er
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateRecord") {
+			panic("panic guard triggered in UpdateRecord")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.UpdateRecord(ctx, r); err != nil {
 		return err
 	}
@@ -599,6 +795,13 @@ func (s *FileStore) UpdateRecordStatus(ctx context.Context, id model.ID, status 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if s.panicGuard != nil {
+		if s.panicGuard("update", "UpdateRecordStatus") {
+			panic("panic guard triggered in UpdateRecordStatus")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
+
 	if err := s.memStore.UpdateRecordStatus(ctx, id, status, progress, errorMsg); err != nil {
 		return err
 	}
@@ -609,6 +812,13 @@ func (s *FileStore) UpdateRecordStatus(ctx context.Context, id model.ID, status 
 func (s *FileStore) DeleteRecord(ctx context.Context, id model.ID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.panicGuard != nil {
+		if s.panicGuard("delete", "DeleteRecord") {
+			panic("panic guard triggered in DeleteRecord")
+		}
+	}
+	time.Sleep(100 * time.Microsecond)
 
 	if err := s.memStore.DeleteRecord(ctx, id); err != nil {
 		return err
