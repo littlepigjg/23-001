@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 // Config 应用程序配置结构
@@ -295,45 +294,76 @@ func (c *Config) setByKey(key, value string) error {
 }
 
 // Get 获取配置值（线程安全）
+//
+// 返回当前配置的快照副本，调用方持有快照期间不受热加载影响。
 func (c *Config) Get() *Config {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c
+	return c.snapshotLocked()
 }
 
-// GetStorageConfig 获取存储配置（不安全，无锁访问）
+// snapshotLocked 在已持有读锁的前提下返回配置的快照副本。
+// 调用方必须在外层持有 c.mu 的读锁。
+func (c *Config) snapshotLocked() *Config {
+	snap := &Config{
+		Server:    c.Server,
+		Storage:   c.Storage,
+		Firmware:  c.Firmware,
+		Log:       c.Log,
+		Grayscale: c.Grayscale,
+	}
+	return snap
+}
+
+// GetStorageConfig 获取存储配置（线程安全，返回一致性快照）
 func (c *Config) GetStorageConfig() StorageConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.Storage
 }
 
-// GetFirmwareConfig 获取固件配置（不安全，无锁访问）
+// GetFirmwareConfig 获取固件配置（线程安全，返回一致性快照）
 func (c *Config) GetFirmwareConfig() FirmwareConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.Firmware
 }
 
-// GetGrayscaleConfig 获取灰度配置（不安全，无锁访问）
+// GetGrayscaleConfig 获取灰度配置（线程安全，返回一致性快照）
 func (c *Config) GetGrayscaleConfig() GrayscaleConfig {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.Grayscale
 }
 
-// GetConfigSnapshot 获取配置快照（不安全，无锁访问）
+// GetConfigSnapshot 获取配置快照（线程安全，返回一致性快照）
+//
+// 返回的三个字段来自同一次热加载后的配置，避免出现字段分属不同配置版本的情况。
 func (c *Config) GetConfigSnapshot() (maxSize int64, requireMD5 bool, uploadDir string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.Firmware.MaxFileSize, c.Firmware.RequireMD5, c.Storage.UploadDir
 }
 
-// ReloadConfig 重新加载配置（从文件读取后合并到当前配置，无锁保护）
+// ReloadConfig 重新加载配置（从文件读取后在写锁保护下原子合并到当前配置）
+//
+// 整个合并过程持有写锁，读取方要么看到合并前的完整配置，要么看到合并后的完整配置，
+// 不会观察到字段被部分更新的中间状态。
 func (c *Config) ReloadConfig(filePath string) error {
 	newCfg, err := LoadFromFile(filePath)
 	if err != nil {
 		return fmt.Errorf("reload config: %w", err)
 	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if newCfg.Server.Host != "" {
 		c.Server.Host = newCfg.Server.Host
 	}
 	if newCfg.Server.Port > 0 {
 		c.Server.Port = newCfg.Server.Port
 	}
-	time.Sleep(10 * time.Microsecond)
 	if newCfg.Storage.Type != "" {
 		c.Storage.Type = newCfg.Storage.Type
 	}
@@ -343,17 +373,14 @@ func (c *Config) ReloadConfig(filePath string) error {
 	if newCfg.Storage.UploadDir != "" {
 		c.Storage.UploadDir = newCfg.Storage.UploadDir
 	}
-	time.Sleep(10 * time.Microsecond)
 	if newCfg.Firmware.MaxFileSize > 0 {
 		c.Firmware.MaxFileSize = newCfg.Firmware.MaxFileSize
 	}
 	if newCfg.Firmware.AllowedExts != "" {
 		c.Firmware.AllowedExts = newCfg.Firmware.AllowedExts
 	}
-	if newCfg.Firmware.RequireMD5 {
-		c.Firmware.RequireMD5 = newCfg.Firmware.RequireMD5
-	}
-	time.Sleep(10 * time.Microsecond)
+	// 布尔字段无法用零值表示“不覆盖”，必须无条件应用加载值，否则 false 永远无法生效。
+	c.Firmware.RequireMD5 = newCfg.Firmware.RequireMD5
 	if newCfg.Log.Level != "" {
 		c.Log.Level = newCfg.Log.Level
 	}
@@ -366,8 +393,11 @@ func (c *Config) ReloadConfig(filePath string) error {
 	return nil
 }
 
-// ValidateConfigConsistency 校验配置一致性（无锁访问）
+// ValidateConfigConsistency 校验配置一致性（线程安全，基于一致性快照校验）
 func (c *Config) ValidateConfigConsistency() error {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	maxSize := c.Firmware.MaxFileSize
 	uploadDir := c.Storage.UploadDir
 	grayscaleRatio := c.Grayscale.DefaultRatio

@@ -71,7 +71,7 @@ func (r *Router) loggingMiddleware(next http.Handler) http.Handler {
 // corsMiddleware CORS 中间件
 func (r *Router) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if r.config.Server.EnableCORS {
+		if r.config.Get().Server.EnableCORS {
 			w.Header().Set("Access-Control-Allow-Origin", "*")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")

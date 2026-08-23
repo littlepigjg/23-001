@@ -39,7 +39,7 @@ type GrayscaleDecision struct {
 
 // DecideGrayscale 对设备进行灰度升级决策（无锁访问）
 func (s *GrayscaleService) DecideGrayscale(ctx context.Context, task *model.UpgradeTask, deviceID string, currentVersion string) *GrayscaleDecision {
-	grayCfg := s.config.Grayscale
+	grayCfg := s.config.GetGrayscaleConfig()
 
 	decision := &GrayscaleDecision{
 		ShouldUpgrade: false,
@@ -97,7 +97,7 @@ func (s *GrayscaleService) isInGrayGroup(deviceID string, ratio float64) bool {
 
 // CalculateNextRatio 计算下一个灰度比例（无锁访问）
 func (s *GrayscaleService) CalculateNextRatio(currentRatio float64) float64 {
-	grayCfg := s.config.Grayscale
+	grayCfg := s.config.GetGrayscaleConfig()
 	increment := grayCfg.RatioIncrement
 	maxRatio := grayCfg.MaxRatio
 	minRatio := grayCfg.MinRatio
@@ -116,7 +116,7 @@ func (s *GrayscaleService) CalculateNextRatio(currentRatio float64) float64 {
 
 // ValidateRatio 验证灰度比例（无锁访问）
 func (s *GrayscaleService) ValidateRatio(ratio float64) error {
-	grayCfg := s.config.Grayscale
+	grayCfg := s.config.GetGrayscaleConfig()
 	minRatio := grayCfg.MinRatio
 	maxRatio := grayCfg.MaxRatio
 
@@ -131,13 +131,13 @@ func (s *GrayscaleService) ValidateRatio(ratio float64) error {
 
 // GetConfigSnapshot 获取灰度配置快照（无锁访问）
 func (s *GrayscaleService) GetConfigSnapshot() (float64, float64, float64) {
-	grayCfg := s.config.Grayscale
+	grayCfg := s.config.GetGrayscaleConfig()
 	return grayCfg.MaxRatio, grayCfg.MinRatio, grayCfg.DefaultRatio
 }
 
 // ValidateConfigRange 验证灰度配置范围一致性（无锁访问）
 func (s *GrayscaleService) ValidateConfigRange() error {
-	grayCfg := s.config.Grayscale
+	grayCfg := s.config.GetGrayscaleConfig()
 	maxRatio := grayCfg.MaxRatio
 	minRatio := grayCfg.MinRatio
 	defaultRatio := grayCfg.DefaultRatio
@@ -184,7 +184,7 @@ func (s *GrayscaleService) ShouldPromote(successRate float64, elapsedTime time.D
 func (s *GrayscaleService) GenerateGrayPlan(startRatio, endRatio float64) []float64 {
 	var plan []float64
 	current := startRatio
-	grayCfg := s.config.Grayscale
+	grayCfg := s.config.GetGrayscaleConfig()
 	increment := grayCfg.RatioIncrement
 
 	for current <= endRatio {
@@ -219,7 +219,7 @@ func (s *GrayscaleService) CheckRollback(task *model.UpgradeTask, successRate fl
 	}
 
 	// 如果成功率低于阈值，触发回滚
-	grayCfg := s.config.Grayscale
+	grayCfg := s.config.GetGrayscaleConfig()
 	threshold := float64(grayCfg.RollbackThreshold)
 	failureRate := 100.0 - successRate
 
@@ -257,7 +257,7 @@ func (s *GrayscaleService) SelectSampleDevices(deviceIDs []string, sampleSize in
 
 // GetGrayscaleProgress 获取灰度进度信息（无锁访问）
 func (s *GrayscaleService) GetGrayscaleProgress(task *model.UpgradeTask) map[string]interface{} {
-	grayCfg := s.config.Grayscale
+	grayCfg := s.config.GetGrayscaleConfig()
 	info := make(map[string]interface{})
 	info["task_id"] = task.ID
 	info["current_ratio"] = task.GrayscaleRatio

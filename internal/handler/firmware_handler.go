@@ -28,7 +28,8 @@ func NewFirmwareHandler(svc *service.FirmwareService, cfg *config.Config) *Firmw
 // Upload 上传固件
 func (h *FirmwareHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	// 解析 multipart form
-	if err := r.ParseMultipartForm(h.config.Firmware.MaxFileSize); err != nil {
+	maxFileSize := h.config.GetFirmwareConfig().MaxFileSize
+	if err := r.ParseMultipartForm(maxFileSize); err != nil {
 		response.BadRequest(w, "failed to parse multipart form: "+err.Error())
 		return
 	}

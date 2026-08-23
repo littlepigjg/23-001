@@ -41,11 +41,13 @@ func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 
 // Ready 就绪检查端点
 func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
+	serverCfg := h.config.Get().Server
+	storageCfg := h.config.GetStorageConfig()
 	dependencies := map[string]string{
-		"database":   "ok",
-		"storage":    h.config.Storage.Type,
-		"server":     h.config.Server.Host + ":" + strconv.Itoa(h.config.Server.Port),
-		"firmware_dir": h.config.Storage.UploadDir,
+		"database":     "ok",
+		"storage":      storageCfg.Type,
+		"server":       serverCfg.Host + ":" + strconv.Itoa(serverCfg.Port),
+		"firmware_dir": storageCfg.UploadDir,
 	}
 
 	resp := &model.ReadyResponse{

@@ -33,7 +33,7 @@ func NewFileStore(cfg *config.Config) *FileStore {
 // Init 初始化文件存储
 func (s *FileStore) Init(ctx context.Context) error {
 	// 确保数据目录存在
-	dataDir := s.cfg.Storage.DataDir
+	dataDir := s.cfg.GetStorageConfig().DataDir
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return fmt.Errorf("failed to create data dir: %w", err)
 	}
@@ -93,7 +93,7 @@ func (s *FileStore) autoSave(ctx context.Context) {
 
 // saveToFile 保存数据到文件
 func (s *FileStore) saveToFile() error {
-	dataDir := s.cfg.Storage.DataDir
+	dataDir := s.cfg.GetStorageConfig().DataDir
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
 		return err
 	}

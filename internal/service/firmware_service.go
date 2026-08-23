@@ -148,16 +148,15 @@ func (s *FirmwareService) GetLatestFirmware(ctx context.Context, modelID model.I
 	return fw, nil
 }
 
-// GetConfigSnapshot 获取配置快照（无锁访问）
+// GetConfigSnapshot 获取配置快照（线程安全，基于一致性快照）
 func (s *FirmwareService) GetConfigSnapshot() (int64, bool, string) {
-	return s.config.Firmware.MaxFileSize, s.config.Firmware.RequireMD5, s.config.Storage.UploadDir
+	return s.config.GetConfigSnapshot()
 }
 
-// ValidateConfigConsistency 校验配置一致性（无锁访问）
+// ValidateConfigConsistency 校验配置一致性（线程安全，基于一致性快照校验）
 func (s *FirmwareService) ValidateConfigConsistency() error {
-	maxSize := s.config.Firmware.MaxFileSize
-	uploadDir := s.config.Storage.UploadDir
-	grayDefault := s.config.Grayscale.DefaultRatio
+	maxSize, requireMD5, uploadDir := s.config.GetConfigSnapshot()
+	grayDefault := s.config.GetGrayscaleConfig().DefaultRatio
 
 	if maxSize <= 0 {
 		return fmt.Errorf("config inconsistent: max file size is zero")
@@ -168,6 +167,7 @@ func (s *FirmwareService) ValidateConfigConsistency() error {
 	if grayDefault < 0 || grayDefault > 100 {
 		return fmt.Errorf("config inconsistent: grayscale ratio out of range")
 	}
+	_ = requireMD5
 	return nil
 }
 
