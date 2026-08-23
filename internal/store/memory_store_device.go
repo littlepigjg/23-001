@@ -13,6 +13,9 @@ import (
 
 // CreateDevice 创建设备
 func (s *MemoryStore) CreateDevice(_ context.Context, d *model.Device) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if d.DeviceID == "" {
 		return fmt.Errorf("device ID is required")
 	}

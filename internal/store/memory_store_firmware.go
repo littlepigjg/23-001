@@ -13,6 +13,9 @@ import (
 
 // CreateFirmware 创建固件
 func (s *MemoryStore) CreateFirmware(_ context.Context, f *model.Firmware) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if f.ModelID <= 0 {
 		return fmt.Errorf("invalid model ID")
 	}

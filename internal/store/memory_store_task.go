@@ -13,6 +13,9 @@ import (
 
 // CreateTask 创建任务
 func (s *MemoryStore) CreateTask(_ context.Context, t *model.UpgradeTask) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	if t.Name == "" {
 		return fmt.Errorf("task name is required")
 	}
