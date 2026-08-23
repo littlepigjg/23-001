@@ -439,3 +439,32 @@ func (s *Statistics) CalculateRates(totalSuccess, totalFail int) {
 		s.FailureRate = float64(totalFail) / float64(total) * 100
 	}
 }
+
+// DashboardResponse 仪表盘响应
+type DashboardResponse struct {
+	TotalDevices       int            `json:"total_devices"`
+	OnlineDevices      int            `json:"online_devices"`
+	OfflineDevices     int            `json:"offline_devices"`
+	TotalModels        int            `json:"total_models"`
+	TotalFirmware      int            `json:"total_firmware"`
+	ActiveTasks        int            `json:"active_tasks"`
+	SuccessRate        float64        `json:"success_rate"`
+	PendingUpgrades    int            `json:"pending_upgrades"`
+	TodayRecords       int            `json:"today_records"`
+	VersionDistribution map[string]int `json:"version_distribution"`
+	ModelDistribution   map[string]int `json:"model_distribution"`
+}
+
+// HealthResponse 健康检查响应
+type HealthResponse struct {
+	Status    string `json:"status"`
+	Version   string `json:"version"`
+	Uptime    string `json:"uptime"`
+	Timestamp string `json:"timestamp"`
+}
+
+// ReadyResponse 就绪检查响应
+type ReadyResponse struct {
+	Status       string            `json:"status"`
+	Dependencies map[string]string `json:"dependencies"`
+}

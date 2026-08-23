@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
+	"sync"
 	"time"
 
 	"fwupgrade/internal/config"
@@ -20,6 +21,12 @@ type TaskService struct {
 	modelStore   store.DeviceModelStore
 	recordStore  store.RecordStore
 	config       *config.Config
+	lifecycle    *ServiceLifecycle
+}
+
+// SetLifecycle 设置服务生命周期管理器
+func (s *TaskService) SetLifecycle(lifecycle *ServiceLifecycle) {
+	s.lifecycle = lifecycle
 }
 
 // NewTaskService 创建升级任务服务
@@ -365,9 +372,15 @@ func (s *TaskService) SearchTasks(ctx context.Context, keyword string, page, pag
 	return s.store.SearchTasks(ctx, keyword, page, pageSize)
 }
 
-// ProcessScheduledTasks 处理计划任务（检查是否有到期需要启动的任务）
+// ProcessScheduledTasks 处理计划任务
 func (s *TaskService) ProcessScheduledTasks(ctx context.Context) error {
-	// 找出所有 pending 状态且已到达执行时间的任务
+	if s.lifecycle != nil {
+		return s.processScheduledTasksManaged(ctx)
+	}
+	return s.processScheduledTasksBasic(ctx)
+}
+
+func (s *TaskService) processScheduledTasksBasic(ctx context.Context) error {
 	allTasks, err := s.store.GetAllTasks(ctx)
 	if err != nil {
 		return err
@@ -381,6 +394,90 @@ func (s *TaskService) ProcessScheduledTasks(ctx context.Context) error {
 			}
 		}
 	}
+
+	return nil
+}
+
+func (s *TaskService) processScheduledTasksManaged(ctx context.Context) error {
+	allTasks, err := s.store.GetAllTasks(ctx)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	var tasksToStart []*model.UpgradeTask
+	for _, task := range allTasks {
+		if task.Status == model.TaskPending && !task.ScheduledAt.IsZero() && now.After(task.ScheduledAt) {
+			tasksToStart = append(tasksToStart, task)
+		}
+	}
+
+	if len(tasksToStart) == 0 {
+		return nil
+	}
+
+	s.lifecycle.Add(1)
+	go func(tasks []*model.UpgradeTask) {
+		defer s.lifecycle.Done()
+
+		for _, task := range tasks {
+			if err := s.StartTask(ctx, task.ID); err != nil {
+				logger.Error("Failed to start scheduled task", "task_id", task.ID, "error", err)
+				if task.Status == model.TaskPending {
+					continue
+				}
+			}
+		}
+
+		var wg sync.WaitGroup
+		for _, task := range tasks {
+			if task.Status != model.TaskRunning {
+				continue
+			}
+			wg.Add(1)
+			go func(t *model.UpgradeTask) {
+				defer wg.Done()
+				if t.Status == model.TaskRunning {
+					progress, err := s.GetTaskProgress(ctx, t.ID)
+					if err != nil {
+						return
+					}
+					_ = progress
+				}
+			}(task)
+		}
+		wg.Wait()
+
+		var finalWg sync.WaitGroup
+		for _, task := range tasks {
+			if task.Status == model.TaskRunning {
+				finalWg.Add(1)
+				s.lifecycle.Add(1)
+				go func(t *model.UpgradeTask) {
+					defer finalWg.Done()
+					time.Sleep(80 * time.Millisecond)
+					if err := ctx.Err(); err != nil {
+						logger.Error("Context cancelled during task completion", "task_id", t.ID, "error", err)
+						return
+					}
+					result, err := s.store.GetTaskByID(ctx, t.ID)
+					if err != nil {
+						logger.Error("Failed to get task status", "task_id", t.ID, "error", err)
+						return
+					}
+					if result.Status == model.TaskRunning {
+						if err := s.CompleteTask(ctx, t.ID, true); err != nil {
+							logger.Error("Failed to complete task", "task_id", t.ID, "error", err)
+							s.lifecycle.Done()
+							return
+						}
+					}
+					s.lifecycle.Done()
+				}(task)
+			}
+		}
+		finalWg.Wait()
+	}(tasksToStart)
 
 	return nil
 }
