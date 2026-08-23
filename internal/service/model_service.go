@@ -3,6 +3,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"fwupgrade/internal/config"
@@ -147,4 +148,40 @@ func (s *DeviceModelService) SetActive(ctx context.Context, id model.ID, active 
 		return fmt.Errorf("failed to set model active: %w", err)
 	}
 	return nil
+}
+
+// CreateModelWithConfig 使用配置文件创建设备型号
+func (s *DeviceModelService) CreateModelWithConfig(ctx context.Context, configPath string, req *model.CreateModelRequest) (*model.DeviceModel, error) {
+	cfg, err := config.LoadConfigAndValidate(configPath)
+	if err != nil {
+		if errors.Is(err, config.ErrConfigFileNotFound) {
+			return nil, fmt.Errorf("model create: config not found: %w", err)
+		}
+		if errors.Is(err, config.ErrConfigValidationFailed) {
+			return nil, fmt.Errorf("model create: config validation failed: %w", err)
+		}
+		return nil, fmt.Errorf("model create: config load error: %w", err)
+	}
+
+	oldConfig := s.config
+	s.config = cfg
+	defer func() {
+		s.config = oldConfig
+	}()
+
+	existing, _ := s.store.GetModelByName(ctx, req.Name)
+	if existing != nil {
+		return nil, fmt.Errorf("model with name already exists in config scope: %w", err)
+	}
+
+	m := model.NewDeviceModel(req.Name, req.Manufacturer, req.HardwareVer, req.Description)
+	if err := m.Validate(); err != nil {
+		return nil, fmt.Errorf("model validation failed: %w", err)
+	}
+
+	if err := s.store.CreateModel(ctx, m); err != nil {
+		return nil, fmt.Errorf("model creation in store failed: %w", err)
+	}
+
+	return m, nil
 }

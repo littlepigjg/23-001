@@ -3,11 +3,18 @@ package config
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+)
+
+var (
+	ErrConfigFileNotFound     = errors.New("config file not found")
+	ErrConfigInvalidFormat     = errors.New("config file invalid format")
+	ErrConfigValidationFailed  = errors.New("config validation failed")
 )
 
 // Config 应用程序配置结构
@@ -138,12 +145,17 @@ func LoadFromFile(filePath string) (*Config, error) {
 
 	file, err := os.Open(filePath)
 	if err != nil {
-		return cfg, fmt.Errorf("failed to open config file: %w", err)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %w", ErrConfigFileNotFound, err)
+		}
+		return nil, fmt.Errorf("failed to open config file: %w", err)
 	}
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+	lineNum := 0
 	for scanner.Scan() {
+		lineNum++
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
@@ -151,19 +163,100 @@ func LoadFromFile(filePath string) (*Config, error) {
 
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
-			continue
+			return nil, fmt.Errorf("%w at line %d: %s", ErrConfigInvalidFormat, lineNum, line)
 		}
 
 		key := strings.TrimSpace(parts[0])
 		value := strings.TrimSpace(parts[1])
 
 		if err := cfg.setByKey(key, value); err != nil {
-			return nil, fmt.Errorf("config key %s: %w", key, err)
+			return nil, fmt.Errorf("config key %s at line %d: %w", key, lineNum, err)
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error reading config file: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// LoadWithFallback 尝试从文件加载配置，失败时回退到默认配置
+func LoadWithFallback(filePath string) (*Config, error) {
+	if filePath == "" {
+		return DefaultConfig(), nil
+	}
+
+	cfg, err := LoadFromFile(filePath)
+	if err != nil {
+		if errors.Is(err, ErrConfigFileNotFound) {
+			return nil, fmt.Errorf("config not found at path: %w", err)
+		}
+		if errors.Is(err, ErrConfigInvalidFormat) {
+			return nil, fmt.Errorf("config format error: %w", err)
+		}
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrConfigValidationFailed, err)
+	}
+
+	return cfg, nil
+}
+
+// TryLoadConfig 尝试从多个路径加载配置
+func TryLoadConfig(paths ...string) (*Config, error) {
+	var lastErr error
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		cfg, err := LoadFromFile(path)
+		if err != nil {
+			lastErr = err
+			if errors.Is(err, ErrConfigFileNotFound) {
+				continue
+			}
+			if errors.Is(err, ErrConfigInvalidFormat) {
+				return nil, fmt.Errorf("config format invalid at %s: %w", path, err)
+			}
+			otherErr := fmt.Errorf("unexpected config load error at %s: %w", path, err)
+			lastErr = otherErr
+			continue
+		}
+		if err := cfg.Validate(); err != nil {
+			lastErr = fmt.Errorf("config validation failed at %s: %w", path, err)
+			continue
+		}
+		return cfg, nil
+	}
+	if lastErr == nil {
+		return DefaultConfig(), nil
+	}
+	return nil, fmt.Errorf("all config paths failed: %w", lastErr)
+}
+
+// LoadConfigAndValidate 加载并严格验证配置
+func LoadConfigAndValidate(filePath string) (*Config, error) {
+	cfg, err := LoadFromFile(filePath)
+	if err != nil {
+		if errors.Is(err, ErrConfigFileNotFound) {
+			return nil, fmt.Errorf("strict config missing: %w", err)
+		}
+		return nil, fmt.Errorf("strict config load failed: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("strict config validation error: %w", err)
+	}
+
+	if cfg.Firmware.MaxFileSize <= 0 {
+		return nil, fmt.Errorf("strict config invalid max file size: %w", err)
+	}
+
+	if cfg.Server.Port < 1 || cfg.Server.Port > 65535 {
+		return nil, fmt.Errorf("strict config invalid port: %w", err)
 	}
 
 	return cfg, nil

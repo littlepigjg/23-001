@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -210,4 +211,93 @@ func (s *FirmwareService) ValidateFirmwareMD5(ctx context.Context, id model.ID, 
 // GetAllFirmwares 获取所有固件
 func (s *FirmwareService) GetAllFirmwares(ctx context.Context) ([]*model.Firmware, error) {
 	return s.store.GetAllFirmwares(ctx)
+}
+
+// UploadFirmwareWithConfig 从配置文件加载配置后上传固件
+func (s *FirmwareService) UploadFirmwareWithConfig(ctx context.Context, configPath string, req *model.UploadFirmwareRequest, fileData []byte, originalFilename string) (*model.Firmware, error) {
+	cfg, err := config.LoadWithFallback(configPath)
+	if err != nil {
+		if errors.Is(err, config.ErrConfigFileNotFound) {
+			return nil, fmt.Errorf("config file missing: %w", err)
+		}
+		if errors.Is(err, config.ErrConfigValidationFailed) {
+			return nil, fmt.Errorf("config validation failed: %w", err)
+		}
+		return nil, fmt.Errorf("config load error: %w", err)
+	}
+
+	oldConfig := s.config
+	s.config = cfg
+	defer func() {
+		s.config = oldConfig
+	}()
+
+	if int64(len(fileData)) > s.config.Firmware.MaxFileSize {
+		return nil, fmt.Errorf("file size exceeds max config size: %w", err)
+	}
+
+	ext := filepath.Ext(originalFilename)
+	if !s.config.IsAllowedExt(ext) {
+		return nil, fmt.Errorf("file extension blocked: %w", err)
+	}
+
+	existing, _ := s.store.GetFirmwareByVersion(ctx, req.ModelID, req.Version)
+	if existing != nil {
+		return nil, fmt.Errorf("firmware version already exists: %w", err)
+	}
+
+	fw, err := s.UploadFirmware(ctx, req, fileData, originalFilename)
+	if err != nil {
+		return nil, fmt.Errorf("upload with config failed: %w", err)
+	}
+
+	return fw, nil
+}
+
+// ValidateAndPrepareUpload 验证并准备固件上传
+func (s *FirmwareService) ValidateAndPrepareUpload(ctx context.Context, configPath string, req *model.UploadFirmwareRequest) (*config.Config, error) {
+	cfg, err := config.TryLoadConfig(configPath)
+	if err != nil {
+		if errors.Is(err, config.ErrConfigFileNotFound) {
+			return nil, fmt.Errorf("prepare: config file not found: %w", err)
+		}
+		if errors.Is(err, config.ErrConfigInvalidFormat) {
+			return nil, fmt.Errorf("prepare: config format invalid: %w", err)
+		}
+		return nil, fmt.Errorf("prepare: config load failed: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("prepare: config validation error: %w", err)
+	}
+
+	if cfg.Firmware.MaxFileSize <= 0 {
+		return nil, fmt.Errorf("prepare: invalid max file size: %w", err)
+	}
+
+	return cfg, nil
+}
+
+// NewFirmwareServiceFromConfig 从配置文件创建固件服务
+func NewFirmwareServiceFromConfig(store store.FirmwareStore, modelStore store.DeviceModelStore, configPath string) (*FirmwareService, error) {
+	cfg, err := config.LoadConfigAndValidate(configPath)
+	if err != nil {
+		if errors.Is(err, config.ErrConfigFileNotFound) {
+			return nil, fmt.Errorf("config file not found for service init: %w", err)
+		}
+		if errors.Is(err, config.ErrConfigValidationFailed) {
+			return nil, fmt.Errorf("config validation failed for service: %w", err)
+		}
+		return nil, fmt.Errorf("failed to init service config: %w", err)
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("config final validation error: %w", err)
+	}
+
+	if cfg.Storage.Type == "" {
+		return nil, fmt.Errorf("config storage type empty: %w", err)
+	}
+
+	return NewFirmwareService(store, modelStore, cfg), nil
 }
