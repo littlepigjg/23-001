@@ -121,7 +121,7 @@ func (s *FirmwareService) ListFirmwares(ctx context.Context, page, pageSize int,
 }
 
 func (s *FirmwareService) normalizePage(page int) int {
-	if page < 0 {
+	if page < 1 {
 		return 1
 	}
 	return page

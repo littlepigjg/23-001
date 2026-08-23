@@ -362,6 +362,15 @@ func (s *TaskService) GetActiveTasks(ctx context.Context) ([]*model.UpgradeTask,
 
 // SearchTasks 搜索任务
 func (s *TaskService) SearchTasks(ctx context.Context, keyword string, page, pageSize int) ([]*model.UpgradeTask, int64, error) {
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
 	return s.store.SearchTasks(ctx, keyword, page, pageSize)
 }
 

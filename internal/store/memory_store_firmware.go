@@ -93,17 +93,7 @@ func (s *MemoryStore) ListFirmwares(_ context.Context, page, pageSize int, model
 
 	total := int64(len(firmwares))
 	totalCount := int(total)
-
-	start := (page - 1) * pageSize
-	end := start + pageSize
-
-	if start < 0 && start > totalCount {
-		return []*model.Firmware{}, total, nil
-	}
-
-	if end > totalCount {
-		end = totalCount
-	}
+	page, pageSize, start, end := paginate(page, pageSize, totalCount)
 
 	return firmwares[start:end], total, nil
 }

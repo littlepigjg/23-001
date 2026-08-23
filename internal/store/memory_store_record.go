@@ -54,17 +54,7 @@ func (s *MemoryStore) ListRecords(_ context.Context, page, pageSize int, status 
 
 	total := int64(len(records))
 	totalCount := int(total)
-
-	start := (page - 1) * pageSize
-	end := start + pageSize
-
-	if start < 0 && start > totalCount {
-		return []*model.UpgradeRecord{}, total, nil
-	}
-
-	if end > totalCount {
-		end = totalCount
-	}
+	page, pageSize, start, end := paginate(page, pageSize, totalCount)
 
 	return records[start:end], total, nil
 }
@@ -178,6 +168,9 @@ func (s *MemoryStore) GetRecentRecords(_ context.Context, limit int) ([]*model.U
 		return records[i].StartedAt.After(records[j].StartedAt)
 	})
 
+	if limit < 0 {
+		limit = 0
+	}
 	if limit > len(records) {
 		limit = len(records)
 	}

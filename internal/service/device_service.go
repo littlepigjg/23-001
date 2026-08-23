@@ -205,6 +205,9 @@ func (s *DeviceService) SearchDevices(ctx context.Context, keyword string, page,
 	if pageSize < 1 {
 		pageSize = 20
 	}
+	if pageSize > 100 {
+		pageSize = 100
+	}
 
 	return s.store.SearchDevices(ctx, keyword, page, pageSize)
 }

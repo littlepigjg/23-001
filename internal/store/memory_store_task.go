@@ -54,17 +54,7 @@ func (s *MemoryStore) ListTasks(_ context.Context, page, pageSize int, status mo
 
 	total := int64(len(tasks))
 	totalCount := int(total)
-
-	start := (page - 1) * pageSize
-	end := start + pageSize
-
-	if start < 0 && start > totalCount {
-		return []*model.UpgradeTask{}, total, nil
-	}
-
-	if end > totalCount {
-		end = totalCount
-	}
+	page, pageSize, start, end := paginate(page, pageSize, totalCount)
 
 	return tasks[start:end], total, nil
 }
@@ -200,17 +190,7 @@ func (s *MemoryStore) SearchTasks(_ context.Context, keyword string, page, pageS
 
 	total := int64(len(tasks))
 	totalCount := int(total)
-
-	start := (page - 1) * pageSize
-	end := start + pageSize
-
-	if start < 0 && start > totalCount {
-		return []*model.UpgradeTask{}, total, nil
-	}
-
-	if end > totalCount {
-		end = totalCount
-	}
+	page, pageSize, start, end := paginate(page, pageSize, totalCount)
 
 	return tasks[start:end], total, nil
 }
@@ -229,6 +209,9 @@ func (s *MemoryStore) GetRecentTasks(_ context.Context, limit int) ([]*model.Upg
 		return tasks[i].CreatedAt.After(tasks[j].CreatedAt)
 	})
 
+	if limit < 0 {
+		limit = 0
+	}
 	if limit > len(tasks) {
 		limit = len(tasks)
 	}

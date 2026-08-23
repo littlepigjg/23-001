@@ -131,17 +131,7 @@ func (s *MemoryStore) ListModels(_ context.Context, page, pageSize int) ([]*mode
 	})
 
 	totalCount := int(total)
-
-	start := (page - 1) * pageSize
-	end := start + pageSize
-
-	if start < 0 && start > totalCount {
-		return []*model.DeviceModel{}, total, nil
-	}
-
-	if end > totalCount {
-		end = totalCount
-	}
+	page, pageSize, start, end := paginate(page, pageSize, totalCount)
 
 	return models[start:end], total, nil
 }

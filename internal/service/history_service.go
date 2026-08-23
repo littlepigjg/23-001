@@ -30,7 +30,7 @@ func (s *HistoryService) ListRecords(ctx context.Context, page, pageSize int, st
 }
 
 func (s *HistoryService) normalizePage(page int) int {
-	if page < 0 {
+	if page < 1 {
 		return 1
 	}
 	return page

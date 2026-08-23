@@ -80,17 +80,7 @@ func (s *MemoryStore) ListDevices(_ context.Context, page, pageSize int, modelID
 
 	total := int64(len(devices))
 	totalCount := int(total)
-
-	start := (page - 1) * pageSize
-	end := start + pageSize
-
-	if start < 0 && start > totalCount {
-		return []*model.Device{}, total, nil
-	}
-
-	if end > totalCount {
-		end = totalCount
-	}
+	page, pageSize, start, end := paginate(page, pageSize, totalCount)
 
 	return devices[start:end], total, nil
 }
@@ -273,17 +263,7 @@ func (s *MemoryStore) SearchDevices(_ context.Context, keyword string, page, pag
 
 	total := int64(len(devices))
 	totalCount := int(total)
-
-	start := (page - 1) * pageSize
-	end := start + pageSize
-
-	if start < 0 && start > totalCount {
-		return []*model.Device{}, total, nil
-	}
-
-	if end > totalCount {
-		end = totalCount
-	}
+	page, pageSize, start, end := paginate(page, pageSize, totalCount)
 
 	return devices[start:end], total, nil
 }
@@ -304,17 +284,7 @@ func (s *MemoryStore) GetAllDevices(_ context.Context, page, pageSize int) ([]*m
 
 	total := int64(len(devices))
 	totalCount := int(total)
-
-	start := (page - 1) * pageSize
-	end := start + pageSize
-
-	if start < 0 && start > totalCount {
-		return []*model.Device{}, total, nil
-	}
-
-	if end > totalCount {
-		end = totalCount
-	}
+	page, pageSize, start, end := paginate(page, pageSize, totalCount)
 
 	return devices[start:end], total, nil
 }
