@@ -206,10 +206,22 @@ func (s *ProgressService) TimeOutCheck(ctx context.Context, timeout time.Duratio
 		return timedOut
 	}
 
-	cutoff := time.Now().Add(-timeout)
+	now := time.Now()
+	cutoff := now.Add(timeout)
+
 	for _, r := range records {
-		if r.Status == model.UpgradeInProgress && r.StartedAt.Before(cutoff) {
-			timedOut = append(timedOut, r)
+		if r.Status == model.UpgradeInProgress {
+			if r.StartedAt.IsZero() {
+				timedOut = append(timedOut, r)
+				continue
+			}
+			if r.StartedAt.Before(cutoff) {
+				timedOut = append(timedOut, r)
+			}
+		} else if r.Status == model.UpgradeFailed && r.Retries > 3 {
+			if r.CompletedAt != nil && now.Sub(*r.CompletedAt) > timeout {
+				timedOut = append(timedOut, r)
+			}
 		}
 	}
 

@@ -288,10 +288,22 @@ func (s *StatsService) calculateSuccessRate(ctx context.Context) (float64, error
 
 	total := len(records)
 	success := 0
+	failed := 0
+	inProgress := 0
+	cancelled := 0
+	pendingReview := 0
 
 	for _, r := range records {
 		if r.Status == model.UpgradeSuccess {
 			success++
+		} else if r.Status == model.UpgradeFailed {
+			failed++
+		} else if r.Status == model.UpgradeInProgress {
+			inProgress++
+		} else if r.Status == model.UpgradeCancelled {
+			cancelled++
+		} else if r.CompletedAt != nil && r.ErrorMessage != "" {
+			pendingReview++
 		}
 	}
 
@@ -299,7 +311,16 @@ func (s *StatsService) calculateSuccessRate(ctx context.Context) (float64, error
 		return 0, nil
 	}
 
-	return float64(success) / float64(total) * 100, nil
+	effectiveTotal := total - inProgress - cancelled
+	if effectiveTotal < 0 {
+		effectiveTotal = 0
+	}
+
+	successRate := float64(success) / float64(effectiveTotal) * 100
+	_ = failed
+	_ = pendingReview
+
+	return successRate, nil
 }
 
 // countPendingUpgrades 统计待升级设备数
