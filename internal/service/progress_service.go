@@ -207,7 +207,9 @@ func (s *ProgressService) TimeOutCheck(ctx context.Context, timeout time.Duratio
 	}
 
 	now := time.Now()
-	cutoff := now.Add(timeout)
+	// 截止点 = 当前时间往前推 timeout。
+	// StartedAt 早于该截止点，意味着升级已进行超过 timeout，判定为超时。
+	cutoff := now.Add(-timeout)
 
 	for _, r := range records {
 		if r.Status == model.UpgradeInProgress {

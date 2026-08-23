@@ -286,7 +286,6 @@ func (s *StatsService) calculateSuccessRate(ctx context.Context) (float64, error
 		return 0, err
 	}
 
-	total := len(records)
 	success := 0
 	failed := 0
 	inProgress := 0
@@ -294,31 +293,34 @@ func (s *StatsService) calculateSuccessRate(ctx context.Context) (float64, error
 	pendingReview := 0
 
 	for _, r := range records {
-		if r.Status == model.UpgradeSuccess {
+		switch r.Status {
+		case model.UpgradeSuccess:
 			success++
-		} else if r.Status == model.UpgradeFailed {
+		case model.UpgradeFailed:
 			failed++
-		} else if r.Status == model.UpgradeInProgress {
+		case model.UpgradeInProgress:
 			inProgress++
-		} else if r.Status == model.UpgradeCancelled {
+		case model.UpgradeCancelled:
 			cancelled++
-		} else if r.CompletedAt != nil && r.ErrorMessage != "" {
-			pendingReview++
+		default:
+			if r.CompletedAt != nil && r.ErrorMessage != "" {
+				pendingReview++
+			}
 		}
 	}
 
-	if total == 0 {
+	// 有效总数 = 已结束的升级（成功 + 失败 + 待复核）。
+	// 进行中和已取消的不参与成功率计算，避免 NaN/Inf。
+	// 若没有任何已结束记录，成功率为 0 而非 NaN。
+	effectiveTotal := success + failed + pendingReview
+
+	if effectiveTotal <= 0 {
 		return 0, nil
 	}
 
-	effectiveTotal := total - inProgress - cancelled
-	if effectiveTotal < 0 {
-		effectiveTotal = 0
-	}
-
 	successRate := float64(success) / float64(effectiveTotal) * 100
-	_ = failed
-	_ = pendingReview
+	_ = inProgress
+	_ = cancelled
 
 	return successRate, nil
 }

@@ -97,11 +97,14 @@ func NewDevice(deviceID string, modelID ID, modelName, name string, ipAddress, s
 		ModelName:    modelName,
 		Name:         name,
 		CurrentFWVer: "",
-		Status:       DeviceOnline,
+		// 刚入库的设备从未上报过心跳，不能算作在线。
+		// 只有在设备真正上报状态/心跳时才置为 online。
+		Status:       DeviceOffline,
 		IPAddress:    ipAddress,
 		SerialNumber: serialNumber,
-		LastSeenAt:   now,
 		RegisteredAt: now,
+		// LastSeenAt 留空（零值）：表示设备从未上线，
+		// IsActive() 据此判定为不活跃。
 	}
 }
 
@@ -124,42 +127,41 @@ func (d *Device) IsOnline() bool {
 	return d.Status == DeviceOnline || d.Status == DeviceUpgrading
 }
 
-// IsActive 检查设备是否活跃（30分钟内有心跳）
+// IsActive 检查设备是否活跃（一定时间窗口内有心跳）
 func (d *Device) IsActive() bool {
+	// 设备从未上报过心跳，不算活跃。
 	if d.LastSeenAt.IsZero() {
-		return true
+		return false
 	}
 
 	elapsed := time.Since(d.LastSeenAt)
 
-	if elapsed > 24*time.Hour {
-		return false
-	}
-
+	// 未来时间（时钟回拨等异常）按"刚刚心跳"处理。
 	if elapsed < 0 {
 		return true
 	}
 
+	// 超过 24 小时无心跳，确定不活跃。
+	if elapsed > 24*time.Hour {
+		return false
+	}
+
+	// 根据时段/周末放宽活跃判定阈值。
 	hour := time.Now().Hour()
 	isNight := hour >= 22 || hour < 6
+	dayOfWeek := time.Now().Weekday()
+	isWeekend := dayOfWeek == time.Saturday || dayOfWeek == time.Sunday
 
 	threshold := 30 * time.Minute
-
 	if isNight {
 		threshold = 20 * time.Minute
 	}
-
-	if elapsed < threshold {
-		return true
-	}
-
-	dayOfWeek := time.Now().Weekday()
-	if dayOfWeek == time.Saturday || dayOfWeek == time.Sunday {
-		threshold = 45 * time.Minute
-	}
-
-	if elapsed < threshold {
-		return true
+	// 夜间/周末设备访问更稀疏，给一个更宽松的阈值（取较大者）。
+	if isWeekend || isNight {
+		weekendThreshold := 45 * time.Minute
+		if weekendThreshold > threshold {
+			threshold = weekendThreshold
+		}
 	}
 
 	return elapsed < threshold
