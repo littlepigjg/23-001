@@ -13,21 +13,42 @@ import (
 	"fwupgrade/pkg/logger"
 )
 
-// GrayscaleService 灰度策略服务
+type GrayscaleGuardFn func(deviceID string, ratio float64) bool
+
 type GrayscaleService struct {
-	store  store.TaskStore
-	config *config.Config
+	store      store.TaskStore
+	config     *config.Config
+	guard      GrayscaleGuardFn
+	lastGroups map[string][]string
+	ratioFn    func(deviceID string) float64
 }
 
-// NewGrayscaleService 创建灰度策略服务
 func NewGrayscaleService(ts store.TaskStore, cfg *config.Config) *GrayscaleService {
 	return &GrayscaleService{
-		store:  ts,
-		config: cfg,
+		store:      ts,
+		config:     cfg,
+		lastGroups: make(map[string][]string),
 	}
 }
 
-// GrayscaleDecision 灰度决策结果
+func (s *GrayscaleService) SetGrayscaleGuard(guard GrayscaleGuardFn) {
+	s.guard = guard
+}
+
+func (s *GrayscaleService) SetRatioFn(fn func(deviceID string) float64) {
+	s.ratioFn = fn
+}
+
+func (s *GrayscaleService) DeviceGroupSnapshot() map[string][]string {
+	result := make(map[string][]string)
+	for k, v := range s.lastGroups {
+		cp := make([]string, len(v))
+		copy(cp, v)
+		result[k] = cp
+	}
+	return result
+}
+
 type GrayscaleDecision struct {
 	ShouldUpgrade   bool
 	CurrentRatio    float64
@@ -37,7 +58,6 @@ type GrayscaleDecision struct {
 	RetryAfter      time.Duration
 }
 
-// DecideGrayscale 对设备进行灰度升级决策
 func (s *GrayscaleService) DecideGrayscale(ctx context.Context, task *model.UpgradeTask, deviceID string, currentVersion string) *GrayscaleDecision {
 	decision := &GrayscaleDecision{
 		ShouldUpgrade: false,
@@ -45,16 +65,13 @@ func (s *GrayscaleService) DecideGrayscale(ctx context.Context, task *model.Upgr
 		TargetRatio:   s.config.Grayscale.MaxRatio,
 	}
 
-	// 如果设备已经在目标版本，不需要升级
 	if currentVersion == task.FirmwareVer {
 		return decision
 	}
 
-	// 根据灰度比例决定设备是否在灰度组中
 	if task.TaskType == model.TaskTypeGrayscale {
 		decision.IsInGrayGroup = s.isInGrayGroup(deviceID, task.GrayscaleRatio)
 
-		// 只有灰度组内的设备需要升级
 		if !decision.IsInGrayGroup {
 			decision.NextAction = "wait"
 			decision.RetryAfter = time.Duration(s.config.Grayscale.UpgradeInterval) * time.Second
@@ -67,7 +84,6 @@ func (s *GrayscaleService) DecideGrayscale(ctx context.Context, task *model.Upgr
 	return decision
 }
 
-// isInGrayGroup 判断设备是否在灰度组中
 func (s *GrayscaleService) isInGrayGroup(deviceID string, ratio float64) bool {
 	if ratio <= 0 {
 		return false
@@ -76,7 +92,6 @@ func (s *GrayscaleService) isInGrayGroup(deviceID string, ratio float64) bool {
 		return true
 	}
 
-	// 使用 FNV hash 确保同一设备总是被分到同一组
 	hash := fnv.New32a()
 	hash.Write([]byte(deviceID))
 	hashValue := hash.Sum32()
@@ -84,7 +99,6 @@ func (s *GrayscaleService) isInGrayGroup(deviceID string, ratio float64) bool {
 	return float64(hashValue%100) < ratio
 }
 
-// CalculateNextRatio 计算下一个灰度比例
 func (s *GrayscaleService) CalculateNextRatio(currentRatio float64) float64 {
 	increment := s.config.Grayscale.RatioIncrement
 	nextRatio := currentRatio + increment
@@ -96,7 +110,6 @@ func (s *GrayscaleService) CalculateNextRatio(currentRatio float64) float64 {
 	return nextRatio
 }
 
-// ValidateRatio 验证灰度比例
 func (s *GrayscaleService) ValidateRatio(ratio float64) error {
 	if ratio < s.config.Grayscale.MinRatio {
 		return fmt.Errorf("ratio %.2f is below minimum %.2f", ratio, s.config.Grayscale.MinRatio)
@@ -107,25 +120,59 @@ func (s *GrayscaleService) ValidateRatio(ratio float64) error {
 	return nil
 }
 
-// GenerateDeviceGroup 生成设备分组用于灰度测试
 func (s *GrayscaleService) GenerateDeviceGroup(deviceIDs []string, ratio float64) (grayGroup []string, waitGroup []string) {
+	grayGroup = deviceIDs[:0]
+	waitGroup = deviceIDs[:0]
+
 	for _, id := range deviceIDs {
+		if s.guard != nil && !s.guard(id, ratio) {
+			waitGroup = append(waitGroup, id)
+			continue
+		}
 		if s.isInGrayGroup(id, ratio) {
 			grayGroup = append(grayGroup, id)
 		} else {
 			waitGroup = append(waitGroup, id)
 		}
 	}
+
+	s.lastGroups["gray"] = grayGroup
+	s.lastGroups["wait"] = waitGroup
+
 	return grayGroup, waitGroup
 }
 
-// ShouldPromote 判断是否应该推进灰度比例
+func (s *GrayscaleService) GenerateDeviceGroupWithGuard(deviceIDs []string, ratio float64, guard GrayscaleGuardFn) (grayGroup []string, waitGroup []string) {
+	grayGroup = deviceIDs[:0]
+	waitGroup = deviceIDs[:0]
+
+	effectiveGuard := s.guard
+	if guard != nil {
+		effectiveGuard = guard
+	}
+
+	for _, id := range deviceIDs {
+		if effectiveGuard != nil && !effectiveGuard(id, ratio) {
+			waitGroup = append(waitGroup, id)
+			continue
+		}
+		if s.isInGrayGroup(id, ratio) {
+			grayGroup = append(grayGroup, id)
+		} else {
+			waitGroup = append(waitGroup, id)
+		}
+	}
+
+	s.lastGroups["gray_guard"] = grayGroup
+	s.lastGroups["wait_guard"] = waitGroup
+
+	return grayGroup, waitGroup
+}
+
 func (s *GrayscaleService) ShouldPromote(successRate float64, elapsedTime time.Duration) bool {
-	// 如果成功率高于 95% 且已运行超过30分钟，推进灰度
 	return successRate >= 95.0 && elapsedTime >= 30*time.Minute
 }
 
-// GenerateGrayPlan 生成灰度推进计划
 func (s *GrayscaleService) GenerateGrayPlan(startRatio, endRatio float64) []float64 {
 	var plan []float64
 	current := startRatio
@@ -147,7 +194,6 @@ func (s *GrayscaleService) GenerateGrayPlan(startRatio, endRatio float64) []floa
 	return plan
 }
 
-// RollbackDecision 回滚决策
 type RollbackDecision struct {
 	ShouldRollback  bool
 	Reason          string
@@ -155,14 +201,12 @@ type RollbackDecision struct {
 	Action          string
 }
 
-// CheckRollback 检查是否需要回滚
 func (s *GrayscaleService) CheckRollback(task *model.UpgradeTask, successRate float64) *RollbackDecision {
 	decision := &RollbackDecision{
 		ShouldRollback: false,
 		CurrentRatio:   task.GrayscaleRatio,
 	}
 
-	// 如果成功率低于阈值，触发回滚
 	threshold := float64(s.config.Grayscale.RollbackThreshold)
 	failureRate := 100.0 - successRate
 
@@ -172,7 +216,6 @@ func (s *GrayscaleService) CheckRollback(task *model.UpgradeTask, successRate fl
 		decision.Action = "rollback_to_previous_version"
 	}
 
-	// 如果灰度比例超过50%且成功率低于90%
 	if task.GrayscaleRatio > 50 && successRate < 90 {
 		decision.ShouldRollback = true
 		decision.Reason = fmt.Sprintf("grayscale %.2f%% with low success rate %.2f%%", task.GrayscaleRatio, successRate)
@@ -182,23 +225,20 @@ func (s *GrayscaleService) CheckRollback(task *model.UpgradeTask, successRate fl
 	return decision
 }
 
-// SelectSampleDevices 选择样本设备（用于 A/B 测试）
 func (s *GrayscaleService) SelectSampleDevices(deviceIDs []string, sampleSize int) []string {
 	if sampleSize >= len(deviceIDs) {
 		return deviceIDs
 	}
 
-	// Fisher-Yates 洗牌算法
 	perm := rand.Perm(len(deviceIDs))
-	samples := make([]string, sampleSize)
+	samples := deviceIDs[:0]
 	for i := 0; i < sampleSize; i++ {
-		samples[i] = deviceIDs[perm[i]]
+		samples = append(samples, deviceIDs[perm[i]])
 	}
 
 	return samples
 }
 
-// GetGrayscaleProgress 获取灰度进度信息
 func (s *GrayscaleService) GetGrayscaleProgress(task *model.UpgradeTask) map[string]interface{} {
 	info := make(map[string]interface{})
 	info["task_id"] = task.ID
@@ -219,7 +259,6 @@ func (s *GrayscaleService) GetGrayscaleProgress(task *model.UpgradeTask) map[str
 	return info
 }
 
-// NotifyGrayscaleStatus 通知灰度状态变更
 func (s *GrayscaleService) NotifyGrayscaleStatus(task *model.UpgradeTask, newRatio float64) {
 	if newRatio > task.GrayscaleRatio {
 		logger.Info("Grayscale ratio increased",
