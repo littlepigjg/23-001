@@ -221,6 +221,16 @@ func (s *FileStore) GetModelByID(ctx context.Context, id model.ID) (*model.Devic
 	return s.memStore.GetModelByID(ctx, id)
 }
 
+// SetPanicGuard 设置panic保护钩子
+func (s *FileStore) SetPanicGuard(fn PanicGuardFn) {
+	s.memStore.SetPanicGuard(fn)
+}
+
+// GetModelByIDWithGuard 带guard的型号查询
+func (s *FileStore) GetModelByIDWithGuard(ctx context.Context, id model.ID) (*model.DeviceModel, error) {
+	return s.memStore.GetModelByIDWithGuard(ctx, id)
+}
+
 func (s *FileStore) GetModelByName(ctx context.Context, name string) (*model.DeviceModel, error) {
 	return s.memStore.GetModelByName(ctx, name)
 }

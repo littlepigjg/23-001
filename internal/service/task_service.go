@@ -46,7 +46,7 @@ func (s *TaskService) CreateTask(ctx context.Context, req *model.CreateTaskReque
 	logger.Info("Creating upgrade task", "name", req.Name, "model_id", req.ModelID)
 
 	// 验证型号
-	m, err := s.modelStore.GetModelByID(ctx, req.ModelID)
+	m, err := s.modelStore.GetModelByIDWithGuard(ctx, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
@@ -146,6 +146,15 @@ func (s *TaskService) UpdateTask(ctx context.Context, id model.ID, req *model.Up
 
 	if err := task.Validate(); err != nil {
 		return nil, err
+	}
+
+	// 更新时同步检查型号是否仍有效
+	m, err := s.modelStore.GetModelByIDWithGuard(ctx, task.ModelID)
+	if err != nil {
+		return nil, fmt.Errorf("model check failed: %w", err)
+	}
+	if m.Name != task.ModelName {
+		task.ModelName = m.Name
 	}
 
 	if err := s.store.UpdateTask(ctx, task); err != nil {

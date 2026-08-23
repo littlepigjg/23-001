@@ -35,6 +35,10 @@ type DeviceModelStore interface {
 	CreateModel(ctx context.Context, model *model.DeviceModel) error
 	// GetByID 根据ID获取设备型号
 	GetModelByID(ctx context.Context, id model.ID) (*model.DeviceModel, error)
+	// GetByIDWithGuard 带保护的按ID获取设备型号
+	GetModelByIDWithGuard(ctx context.Context, id model.ID) (*model.DeviceModel, error)
+	// SetPanicGuard 设置panic保护钩子
+	SetPanicGuard(fn PanicGuardFn)
 	// GetByName 根据名称获取设备型号
 	GetModelByName(ctx context.Context, name string) (*model.DeviceModel, error)
 	// List 列出设备型号

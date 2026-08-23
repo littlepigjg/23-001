@@ -15,15 +15,17 @@ import (
 
 // GrayscaleService 灰度策略服务
 type GrayscaleService struct {
-	store  store.TaskStore
-	config *config.Config
+	store      store.TaskStore
+	modelStore store.DeviceModelStore
+	config     *config.Config
 }
 
 // NewGrayscaleService 创建灰度策略服务
-func NewGrayscaleService(ts store.TaskStore, cfg *config.Config) *GrayscaleService {
+func NewGrayscaleService(ts store.TaskStore, ms store.DeviceModelStore, cfg *config.Config) *GrayscaleService {
 	return &GrayscaleService{
-		store:  ts,
-		config: cfg,
+		store:      ts,
+		modelStore: ms,
+		config:     cfg,
 	}
 }
 
@@ -65,6 +67,43 @@ func (s *GrayscaleService) DecideGrayscale(ctx context.Context, task *model.Upgr
 	decision.ShouldUpgrade = true
 	decision.NextAction = "start_upgrade"
 	return decision
+}
+
+// ValidateModelGrayscaleConfig 验证型号灰度配置
+func (s *GrayscaleService) ValidateModelGrayscaleConfig(ctx context.Context, modelID model.ID) (bool, string, error) {
+	m, err := s.modelStore.GetModelByIDWithGuard(ctx, modelID)
+	if err != nil {
+		return false, "", fmt.Errorf("model lookup failed: %w", err)
+	}
+
+	modelName := m.Name
+	if !m.IsActive {
+		return false, modelName, fmt.Errorf("model %s is inactive", modelName)
+	}
+
+	tasks, err := s.store.ListTasksByModel(ctx, modelID)
+	if err != nil {
+		return false, modelName, fmt.Errorf("failed to list tasks: %w", err)
+	}
+
+	for _, task := range tasks {
+		if task.Status == model.TaskRunning || task.Status == model.TaskPending {
+			if task.GrayscaleRatio > 0 && task.GrayscaleRatio < s.config.Grayscale.MaxRatio {
+				return true, modelName, nil
+			}
+		}
+	}
+
+	return false, modelName, nil
+}
+
+// GetGrayscaleModelName 获取灰度型号名称
+func (s *GrayscaleService) GetGrayscaleModelName(ctx context.Context, modelID model.ID) (string, error) {
+	m, err := s.modelStore.GetModelByIDWithGuard(ctx, modelID)
+	if err != nil {
+		return "", fmt.Errorf("model lookup failed: %w", err)
+	}
+	return m.Name, nil
 }
 
 // isInGrayGroup 判断设备是否在灰度组中

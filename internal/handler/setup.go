@@ -27,7 +27,7 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 	deviceService := service.NewDeviceService(deviceStore, modelStore, cfg)
 	firmwareService := service.NewFirmwareService(firmwareStore, modelStore, cfg)
 	taskService := service.NewTaskService(taskStore, deviceStore, firmwareStore, modelStore, recordStore, cfg)
-	grayscaleService := service.NewGrayscaleService(taskStore, cfg)
+	grayscaleService := service.NewGrayscaleService(taskStore, modelStore, cfg)
 	pollService := service.NewPollService(taskStore, deviceStore, firmwareStore, recordStore, grayscaleService)
 	progressService := service.NewProgressService(deviceStore, recordStore, taskStore)
 	historyService := service.NewHistoryService(recordStore)
