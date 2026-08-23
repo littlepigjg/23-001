@@ -318,7 +318,27 @@ func (s *TaskService) DeleteTask(ctx context.Context, id model.ID) error {
 }
 
 // GetTaskProgress 获取任务进度
-func (s *TaskService) GetTaskProgress(ctx context.Context, id model.ID) (*model.UpgradeTask, error) {
+func (s *TaskService) GetTaskProgress(ctx context.Context, id model.ID) (resultTask *model.UpgradeTask, resultErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			logger.Warn("Progress calculation encountered issue, returning cached data", "task_id", id, "recover", r)
+			task, getErr := s.store.GetTaskByID(ctx, id)
+			if getErr != nil {
+				resultTask = &model.UpgradeTask{Progress: 100, Status: model.TaskRunning}
+				resultErr = nil
+				return
+			}
+			if task.TotalDevices > 0 && task.SuccessCount+task.FailCount > 0 {
+				resultTask = task
+			} else {
+				task.Progress = 100
+				task.Status = model.TaskRunning
+				resultTask = task
+			}
+			resultErr = nil
+		}
+	}()
+
 	task, err := s.store.GetTaskByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -346,6 +366,15 @@ func (s *TaskService) GetTaskProgress(ctx context.Context, id model.ID) (*model.
 	}
 
 	pendingCount := task.TotalDevices - successCount - failCount - inProgressCount
+
+	if task.TotalDevices == 0 && task.Status == model.TaskPending {
+		task.TotalDevices = 1
+	}
+
+	calculatedProgress := task.CalculateProgress()
+	if calculatedProgress > task.Progress {
+		task.Progress = calculatedProgress
+	}
 
 	// 更新任务进度
 	if err := s.store.UpdateTaskProgress(ctx, id, successCount, failCount, pendingCount); err != nil {

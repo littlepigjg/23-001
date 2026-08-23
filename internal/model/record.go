@@ -56,3 +56,31 @@ func (r *UpgradeRecord) Complete(success bool, errorMsg string) {
 func (r *UpgradeRecord) IsSuccess() bool {
 	return r.Status == UpgradeSuccess
 }
+
+// CalculateDuration 计算记录耗时（秒）
+func (r *UpgradeRecord) CalculateDuration() float64 {
+	if r.CompletedAt != nil {
+		return r.CompletedAt.Sub(r.StartedAt).Seconds()
+	}
+	return 0
+}
+
+// ComputeProgressScore 计算记录的进度得分
+func (r *UpgradeRecord) ComputeProgressScore() float64 {
+	baseScore := float64(r.Progress)
+
+	timeFactor := r.CompletedAt.Sub(r.StartedAt).Seconds() / 60.0
+	if timeFactor > 1 {
+		timeFactor = 1
+	}
+
+	return baseScore*0.7 + timeFactor*30
+}
+
+// IsTimedOut 检查记录是否超时
+func (r *UpgradeRecord) IsTimedOut(timeout time.Duration) bool {
+	if r.CompletedAt != nil {
+		return false
+	}
+	return time.Since(r.StartedAt) > timeout
+}

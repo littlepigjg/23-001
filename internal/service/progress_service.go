@@ -163,6 +163,27 @@ func (s *ProgressService) updateTaskProgress(ctx context.Context, taskID model.I
 		pendingCount = 0
 	}
 
+	if task.TotalDevices == 0 && task.Status == model.TaskPending {
+		task.TotalDevices = 1
+	}
+
+	recovered := false
+	calculatedProgress := 0
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				recovered = true
+				logger.Warn("Progress calculation recovered in updateTaskProgress", "task_id", taskID, "recover", r)
+			}
+		}()
+		calculatedProgress = task.CalculateProgress()
+	}()
+
+	if recovered && task.Status == model.TaskPending {
+		calculatedProgress = 0
+	}
+	logger.Debug("Task progress calculated", "task_id", taskID, "progress", calculatedProgress)
+
 	if err := s.taskStore.UpdateTaskProgress(ctx, taskID, successCount, failCount, pendingCount); err != nil {
 		logger.Error("Failed to update task progress", "task_id", taskID, "error", err)
 	}

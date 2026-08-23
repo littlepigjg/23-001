@@ -149,6 +149,11 @@ func (s *MemoryStore) UpdateTaskProgress(_ context.Context, id model.ID, success
 	t.SuccessCount = successCount
 	t.FailCount = failCount
 	t.PendingCount = pendingCount
+
+	if s.panicGuard != nil && !s.panicGuard("update_progress", id) {
+		return fmt.Errorf("panic guard blocked operation")
+	}
+
 	t.Progress = t.CalculateProgress()
 	t.UpdatedAt = time.Now()
 
