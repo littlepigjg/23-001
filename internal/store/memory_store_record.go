@@ -42,11 +42,12 @@ func (s *MemoryStore) ListRecords(_ context.Context, page, pageSize int, status 
 
 	totalCount := len(s.records)
 	if totalCount == 0 {
-		s.releaseRecordBuffer(s.recordBuf)
 		return []*model.UpgradeRecord{}, 0, nil
 	}
 
-	buf := s.acquireRecordBuffer(totalCount)
+	// 每次调用独立分配缓冲区。返回的 slice 会在释放读锁后被序列化，
+	// 若复用共享底层数组，并发请求会互相覆写指针，导致返回数据串流。
+	buf := make([]*model.UpgradeRecord, 0, totalCount)
 
 	for _, r := range s.records {
 		if status != "" && r.Status != status {
@@ -56,7 +57,6 @@ func (s *MemoryStore) ListRecords(_ context.Context, page, pageSize int, status 
 	}
 
 	if len(buf) == 0 {
-		s.releaseRecordBuffer(buf)
 		return []*model.UpgradeRecord{}, 0, nil
 	}
 
@@ -84,7 +84,6 @@ func (s *MemoryStore) ListRecords(_ context.Context, page, pageSize int, status 
 		return []*model.UpgradeRecord{}, filteredTotal, nil
 	}
 
-	s.recordBuf = buf[:0]
 	return buf[start:end], filteredTotal, nil
 }
 
@@ -97,7 +96,7 @@ func (s *MemoryStore) ListRecordsByDevice(_ context.Context, deviceID string) ([
 		return []*model.UpgradeRecord{}, nil
 	}
 
-	buf := s.acquireRecordBuffer(len(s.records))
+	buf := make([]*model.UpgradeRecord, 0, len(s.records))
 
 	for _, r := range s.records {
 		if r.DeviceID == deviceID {
@@ -106,7 +105,6 @@ func (s *MemoryStore) ListRecordsByDevice(_ context.Context, deviceID string) ([
 	}
 
 	if len(buf) == 0 {
-		s.releaseRecordBuffer(buf)
 		return []*model.UpgradeRecord{}, nil
 	}
 
@@ -117,7 +115,6 @@ func (s *MemoryStore) ListRecordsByDevice(_ context.Context, deviceID string) ([
 		return buf[i].StartedAt.After(buf[j].StartedAt)
 	})
 
-	s.recordBuf = buf[:0]
 	return buf, nil
 }
 
@@ -130,7 +127,7 @@ func (s *MemoryStore) ListRecordsByTask(_ context.Context, taskID model.ID) ([]*
 		return []*model.UpgradeRecord{}, nil
 	}
 
-	buf := s.acquireRecordBuffer(len(s.records))
+	buf := make([]*model.UpgradeRecord, 0, len(s.records))
 
 	for _, r := range s.records {
 		if r.TaskID == taskID {
@@ -139,7 +136,6 @@ func (s *MemoryStore) ListRecordsByTask(_ context.Context, taskID model.ID) ([]*
 	}
 
 	if len(buf) == 0 {
-		s.releaseRecordBuffer(buf)
 		return []*model.UpgradeRecord{}, nil
 	}
 
@@ -147,7 +143,6 @@ func (s *MemoryStore) ListRecordsByTask(_ context.Context, taskID model.ID) ([]*
 		return buf[i].StartedAt.After(buf[j].StartedAt)
 	})
 
-	s.recordBuf = buf[:0]
 	return buf, nil
 }
 
@@ -210,7 +205,7 @@ func (s *MemoryStore) GetAllRecords(_ context.Context) ([]*model.UpgradeRecord, 
 		return []*model.UpgradeRecord{}, nil
 	}
 
-	buf := s.acquireRecordBuffer(len(s.records))
+	buf := make([]*model.UpgradeRecord, 0, len(s.records))
 
 	for _, r := range s.records {
 		buf = append(buf, r)
@@ -220,7 +215,6 @@ func (s *MemoryStore) GetAllRecords(_ context.Context) ([]*model.UpgradeRecord, 
 		return buf[i].StartedAt.After(buf[j].StartedAt)
 	})
 
-	s.recordBuf = buf[:0]
 	return buf, nil
 }
 
@@ -237,7 +231,7 @@ func (s *MemoryStore) GetRecentRecords(_ context.Context, limit int) ([]*model.U
 		limit = 10
 	}
 
-	buf := s.acquireRecordBuffer(len(s.records))
+	buf := make([]*model.UpgradeRecord, 0, len(s.records))
 
 	for _, r := range s.records {
 		buf = append(buf, r)
@@ -254,7 +248,6 @@ func (s *MemoryStore) GetRecentRecords(_ context.Context, limit int) ([]*model.U
 		limit = len(buf)
 	}
 
-	s.recordBuf = buf[:0]
 	return buf[:limit], nil
 }
 
