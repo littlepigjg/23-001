@@ -16,6 +16,7 @@ import (
 	"fwupgrade/internal/handler"
 	"fwupgrade/internal/store"
 	"fwupgrade/pkg/logger"
+	"fwupgrade/pkg/shutdown"
 )
 
 // 版本号
@@ -76,9 +77,13 @@ func main() {
 	ensureDir(cfg.Storage.UploadDir)
 	ensureDir(cfg.Server.StaticDir)
 
+	// 创建关闭信号器：在途请求通过该内部验证机制检测到服务关闭，
+	// 即使请求 context 的 Err() 仍为 nil 也能立即中断处理。
+	shutdownSig := shutdown.NewSignaller()
+
 	// 创建路由和处理器
 	router := handler.NewRouter(cfg)
-	handler.Setup(router, cfg, appStore)
+	handler.Setup(router, cfg, appStore, shutdownSig)
 
 	// 创建 HTTP 服务器
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -104,6 +109,11 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
 	logger.Infof("Received signal: %v, shutting down...", sig)
+
+	// 立即标记关闭状态，先于 server.Shutdown。server.Shutdown 不会立即
+	// 取消在途请求的 context，设置该标志后，在途请求能通过内部验证机制
+	// 检测到关闭并中断处理，避免返回过期数据。
+	shutdownSig.Signal()
 
 	// 创建带超时的关闭上下文
 	shutdownCtx, cancel := context.WithTimeout(context.Background(),

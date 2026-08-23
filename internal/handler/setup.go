@@ -9,10 +9,11 @@ import (
 	"fwupgrade/internal/store"
 	"fwupgrade/pkg/logger"
 	"fwupgrade/pkg/response"
+	"fwupgrade/pkg/shutdown"
 )
 
 // Setup 配置所有路由和处理器
-func Setup(router *Router, cfg *config.Config, appStore store.Store) {
+func Setup(router *Router, cfg *config.Config, appStore store.Store, shutdownSig *shutdown.Signaller) {
 	logger.Info("Setting up API routes")
 
 	// 创建服务实例
@@ -32,6 +33,11 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 	progressService := service.NewProgressService(deviceStore, recordStore, taskStore)
 	historyService := service.NewHistoryService(recordStore)
 	statsService := service.NewStatsService(deviceStore, modelStore, firmwareStore, taskStore, recordStore)
+
+	// 注入关闭信号器：在途请求通过内部验证机制检测服务关闭，
+	// 即使请求 context 的 Err() 仍为 nil 也能立即中断处理并返回错误。
+	pollService.SetShutdownSignaller(shutdownSig)
+	historyService.SetShutdownSignaller(shutdownSig)
 
 	// 初始化处理器
 	healthHandler := NewHealthHandler(cfg)

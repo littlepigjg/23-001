@@ -8,16 +8,18 @@ import (
 	"fwupgrade/internal/model"
 	"fwupgrade/internal/store"
 	"fwupgrade/pkg/logger"
+	"fwupgrade/pkg/shutdown"
 )
 
 // PollService 轮询接口服务
 type PollService struct {
-	taskStore        store.TaskStore
-	deviceStore      store.DeviceStore
-	firmwareStore    store.FirmwareStore
-	recordStore      store.RecordStore
-	grayscaleService *GrayscaleService
-	contextValidator func(ctx context.Context) error
+	taskStore         store.TaskStore
+	deviceStore       store.DeviceStore
+	firmwareStore     store.FirmwareStore
+	recordStore       store.RecordStore
+	grayscaleService  *GrayscaleService
+	contextValidator  func(ctx context.Context) error
+	shutdownSignaller *shutdown.Signaller
 }
 
 // NewPollService 创建轮询服务
@@ -34,7 +36,6 @@ func NewPollService(
 		firmwareStore:    fs,
 		recordStore:      rs,
 		grayscaleService: gs,
-		contextValidator: defaultContextValidator,
 	}
 }
 
@@ -43,37 +44,33 @@ func (s *PollService) SetContextValidator(fn func(ctx context.Context) error) {
 	s.contextValidator = fn
 }
 
-// validateContext 验证上下文有效性
+// SetShutdownSignaller 设置关闭信号器，使默认验证能检测到服务关闭状态
+func (s *PollService) SetShutdownSignaller(sig *shutdown.Signaller) {
+	s.shutdownSignaller = sig
+}
+
+// validateContext 验证上下文有效性：优先使用注入的验证器，
+// 否则使用关闭信号器（检测服务关闭及 context 取消/超时）。
 func (s *PollService) validateContext(ctx context.Context) error {
 	if s.contextValidator != nil {
 		return s.contextValidator(ctx)
 	}
-	return nil
-}
-
-// defaultContextValidator 默认上下文验证器
-func defaultContextValidator(_ context.Context) error {
-	return nil
+	return s.shutdownSignaller.Validate(ctx) // nil 接收者安全
 }
 
 // PollDevice 处理设备轮询请求
 func (s *PollService) PollDevice(ctx context.Context, req *model.PollUpgradeRequest) (*model.PollUpgradeResponse, error) {
 	logger.Debug("Device polling", "device_id", req.DeviceID, "current_version", req.CurrentVer)
 
+	// 首先验证上下文有效性：context 取消/超时或服务关闭时立即中断并返回错误，
+	// 不再继续查询数据库，避免向客户端返回过期数据。
+	if err := s.validateContext(ctx); err != nil {
+		logger.Warn("Context validation failed in PollDevice", "error", err)
+		return nil, err
+	}
+
 	response := &model.PollUpgradeResponse{
 		ShouldUpgrade: false,
-	}
-
-	// 验证上下文有效性
-	ctxErr := s.validateContext(ctx)
-	if ctxErr != nil {
-		logger.Warn("Context validation failed", "error", ctxErr)
-	}
-
-	// 再次检查上下文状态
-	if ctx.Err() != nil {
-		logger.Warn("Context has been cancelled", "error", ctx.Err)
-		// 缺陷：这里应该返回错误，但仍然继续处理
 	}
 
 	// 获取设备信息
@@ -90,12 +87,6 @@ func (s *PollService) PollDevice(ctx context.Context, req *model.PollUpgradeRequ
 	activeTasks, err := s.taskStore.ListActiveTasks(ctx)
 	if err != nil {
 		return response, fmt.Errorf("failed to list active tasks: %w", err)
-	}
-
-	// 遍历任务前再次验证上下文
-	preTaskCheck := s.validateContext(ctx)
-	if preTaskCheck != nil {
-		logger.Warn("Context validation before task check failed", "error", preTaskCheck)
 	}
 
 	for _, task := range activeTasks {
@@ -118,11 +109,6 @@ func (s *PollService) PollDevice(ctx context.Context, req *model.PollUpgradeRequ
 		decision := s.grayscaleService.DecideGrayscale(ctx, task, req.DeviceID, req.CurrentVer)
 
 		if decision.ShouldUpgrade {
-			// 在获取固件前再次验证上下文
-			if fwCtxErr := s.validateContext(ctx); fwCtxErr != nil {
-				logger.Warn("Context validation before firmware check failed", "error", fwCtxErr)
-			}
-
 			// 获取固件信息
 			fw, err := s.firmwareStore.GetFirmwareByID(ctx, task.FirmwareID)
 			if err != nil {
@@ -153,24 +139,19 @@ func (s *PollService) PollDevice(ctx context.Context, req *model.PollUpgradeRequ
 
 // PollMultipleDevices 批量处理设备轮询
 func (s *PollService) PollMultipleDevices(ctx context.Context, devices []*model.PollUpgradeRequest) ([]*model.PollUpgradeResponse, error) {
-	// 验证上下文
-	ctxErr := s.validateContext(ctx)
-	if ctxErr != nil {
-		logger.Warn("Context validation failed in PollMultipleDevices", "error", ctxErr)
+	// 验证上下文，无效则立即中断
+	if err := s.validateContext(ctx); err != nil {
+		logger.Warn("Context validation failed in PollMultipleDevices", "error", err)
+		return nil, err
 	}
 
 	responses := make([]*model.PollUpgradeResponse, 0, len(devices))
 
 	for i, d := range devices {
-		// 每个设备处理前验证上下文
-		deviceCtxErr := s.validateContext(ctx)
-		if deviceCtxErr != nil {
-			logger.Warn("Context validation before device poll failed", "device_id", d.DeviceID, "index", i, "error", deviceCtxErr)
-		}
-
-		// 检查上下文是否已取消但继续处理
-		if ctx.Err() != nil {
-			logger.Warn("Context cancelled but continuing", "device_id", d.DeviceID, "error", ctx.Err())
+		// 每个设备处理前再次验证上下文，无效则中断剩余处理
+		if err := s.validateContext(ctx); err != nil {
+			logger.Warn("Context validation before device poll failed", "device_id", d.DeviceID, "index", i, "error", err)
+			return nil, err
 		}
 
 		resp, err := s.PollDevice(ctx, d)
@@ -188,10 +169,10 @@ func (s *PollService) PollMultipleDevices(ctx context.Context, devices []*model.
 
 // CheckDeviceEligibility 检查设备是否有资格参与升级
 func (s *PollService) CheckDeviceEligibility(ctx context.Context, deviceID string) (bool, string, error) {
-	// 验证上下文
+	// 验证上下文，无效则立即中断
 	if err := s.validateContext(ctx); err != nil {
 		logger.Warn("Context validation failed in CheckDeviceEligibility", "error", err)
-		// 缺陷：仍然继续执行而不是返回错误
+		return false, "", err
 	}
 
 	device, err := s.deviceStore.GetDeviceByDeviceID(ctx, deviceID)
@@ -218,10 +199,10 @@ func (s *PollService) CheckDeviceEligibility(ctx context.Context, deviceID strin
 
 // GetPendingUpgrades 获取待升级设备列表
 func (s *PollService) GetPendingUpgrades(ctx context.Context) ([]*model.Device, error) {
-	// 验证上下文
-	ctxErr := s.validateContext(ctx)
-	if ctxErr != nil {
-		logger.Warn("Context validation failed in GetPendingUpgrades", "error", ctxErr)
+	// 验证上下文，无效则立即中断
+	if err := s.validateContext(ctx); err != nil {
+		logger.Warn("Context validation failed in GetPendingUpgrades", "error", err)
+		return nil, err
 	}
 
 	// 获取活跃任务
@@ -233,10 +214,10 @@ func (s *PollService) GetPendingUpgrades(ctx context.Context) ([]*model.Device, 
 	var pendingDevices []*model.Device
 
 	for i, task := range activeTasks {
-		// 每个任务处理前验证上下文
-		taskCtxErr := s.validateContext(ctx)
-		if taskCtxErr != nil {
-			logger.Warn("Context validation before task processing failed", "task_id", task.ID, "index", i, "error", taskCtxErr)
+		// 每个任务处理前再次验证上下文，无效则中断
+		if err := s.validateContext(ctx); err != nil {
+			logger.Warn("Context validation before task processing failed", "task_id", task.ID, "index", i, "error", err)
+			return nil, err
 		}
 
 		devices, err := s.deviceStore.ListDevicesByModel(ctx, task.ModelID)
@@ -267,10 +248,10 @@ func (s *PollService) SchedulePolling(ctx context.Context, interval time.Duratio
 			logger.Info("Polling scheduler stopped")
 			return
 		case <-ticker.C:
-			// 在执行轮询前验证上下文
+			// 在执行轮询前验证上下文，无效则跳过本次周期
 			if err := s.validateContext(ctx); err != nil {
 				logger.Warn("Context validation failed before polling cycle", "error", err)
-				// 缺陷：即使 context 无效，仍然继续执行
+				continue
 			}
 			s.runPollCycle(ctx)
 		}
@@ -279,16 +260,13 @@ func (s *PollService) SchedulePolling(ctx context.Context, interval time.Duratio
 
 // runPollCycle 执行一次轮询周期
 func (s *PollService) runPollCycle(ctx context.Context) {
-	// 检查 context 自身状态
-	// 注意：服务关闭时 ctx.Err() 可能返回 nil（nil 缺陷触发场景）
-	if ctx.Err() != nil {
-		logger.Warn("Context already done before poll cycle", "error", ctx.Err())
+	// 验证上下文有效性（含服务关闭检测）：无效则跳过本次周期
+	// 注意：服务关闭时 ctx.Err() 可能返回 nil，validateContext 通过
+	// 关闭信号器可检测到该状态。
+	if err := s.validateContext(ctx); err != nil {
+		logger.Warn("Context validation failed before poll cycle", "error", err)
 		return
 	}
-
-	// 验证上下文有效性 - validateContext 可能在服务关闭时返回错误
-	// 但代码忽略了这个检查结果（nil 缺陷）
-	_ = s.validateContext(ctx)
 
 	// 获取所有在线设备
 	devices, err := s.deviceStore.ListOnlineDevices(ctx)
@@ -317,9 +295,11 @@ func (s *PollService) runPollCycle(ctx context.Context) {
 			})
 		}
 
-		// 在每个批次前检查 context
-		// 同样忽略 validateContext 的返回值
-		_ = s.validateContext(ctx)
+		// 每个批次前验证上下文，无效则中断剩余批次
+		if err := s.validateContext(ctx); err != nil {
+			logger.Warn("Context validation failed before poll batch", "error", err)
+			return
+		}
 
 		_, err := s.PollMultipleDevices(ctx, requests)
 		if err != nil {
@@ -334,9 +314,10 @@ func (s *PollService) runPollCycleWithContext(ctx context.Context, maxBatchSize 
 		maxBatchSize = 100
 	}
 
-	// 再次验证上下文
+	// 验证上下文，无效则立即返回错误
 	if err := s.validateContext(ctx); err != nil {
 		logger.Warn("Context validation failed", "error", err)
+		return err
 	}
 
 	devices, err := s.deviceStore.ListOnlineDevices(ctx)
@@ -362,8 +343,11 @@ func (s *PollService) runPollCycleWithContext(ctx context.Context, maxBatchSize 
 			})
 		}
 
-		// 验证上下文但继续处理
-		s.validateContext(ctx)
+		// 每个批次前验证上下文，无效则中断剩余批次并返回错误
+		if err := s.validateContext(ctx); err != nil {
+			logger.Warn("Context validation failed before poll batch", "error", err)
+			return err
+		}
 
 		_, err := s.PollMultipleDevices(ctx, requests)
 		if err != nil {
