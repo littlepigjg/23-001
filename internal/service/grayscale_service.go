@@ -121,8 +121,11 @@ func (s *GrayscaleService) ValidateRatio(ratio float64) error {
 }
 
 func (s *GrayscaleService) GenerateDeviceGroup(deviceIDs []string, ratio float64) (grayGroup []string, waitGroup []string) {
-	grayGroup = deviceIDs[:0]
-	waitGroup = deviceIDs[:0]
+	// 使用独立的底层数组，避免与入参 deviceIDs 共享内存：
+	// deviceIDs[:0] 会让 grayGroup/waitGroup 复用同一底层数组，
+	// 后续 append 会覆盖 deviceIDs 中尚未读取的元素，导致设备 ID 丢失/重复。
+	grayGroup = make([]string, 0, len(deviceIDs))
+	waitGroup = make([]string, 0, len(deviceIDs))
 
 	for _, id := range deviceIDs {
 		if s.guard != nil && !s.guard(id, ratio) {
@@ -143,8 +146,9 @@ func (s *GrayscaleService) GenerateDeviceGroup(deviceIDs []string, ratio float64
 }
 
 func (s *GrayscaleService) GenerateDeviceGroupWithGuard(deviceIDs []string, ratio float64, guard GrayscaleGuardFn) (grayGroup []string, waitGroup []string) {
-	grayGroup = deviceIDs[:0]
-	waitGroup = deviceIDs[:0]
+	// 同 GenerateDeviceGroup，必须使用独立底层数组，避免覆盖入参 deviceIDs。
+	grayGroup = make([]string, 0, len(deviceIDs))
+	waitGroup = make([]string, 0, len(deviceIDs))
 
 	effectiveGuard := s.guard
 	if guard != nil {
@@ -231,7 +235,8 @@ func (s *GrayscaleService) SelectSampleDevices(deviceIDs []string, sampleSize in
 	}
 
 	perm := rand.Perm(len(deviceIDs))
-	samples := deviceIDs[:0]
+	// 使用独立底层数组，避免 append 写回 deviceIDs 底层数组而污染入参。
+	samples := make([]string, 0, sampleSize)
 	for i := 0; i < sampleSize; i++ {
 		samples = append(samples, deviceIDs[perm[i]])
 	}

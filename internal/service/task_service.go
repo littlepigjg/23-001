@@ -215,10 +215,8 @@ func (s *TaskService) calculateTargetDevices(ctx context.Context, task *model.Up
 			deviceIDs[i] = d.DeviceID
 		}
 
-		subIDs := deviceIDs[:len(deviceIDs)]
-
 		if s.grayscaleService != nil {
-			grayIDs, waitIDs := s.grayscaleService.GenerateDeviceGroup(subIDs, task.GrayscaleRatio)
+			grayIDs, waitIDs := s.grayscaleService.GenerateDeviceGroup(deviceIDs, task.GrayscaleRatio)
 
 			deviceMap := make(map[string]*model.Device)
 			for _, d := range allDevices {
