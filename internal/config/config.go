@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Config 应用程序配置结构
@@ -41,9 +42,13 @@ type ServerConfig struct {
 
 // StorageConfig 存储配置
 type StorageConfig struct {
-	Type      string `json:"type"`       // 存储类型：memory / file
-	DataDir   string `json:"data_dir"`   // 数据目录
-	UploadDir string `json:"upload_dir"` // 上传文件目录
+	Type        string `json:"type"`         // 存储类型：memory / file
+	DataDir     string `json:"data_dir"`     // 数据目录
+	UploadDir   string `json:"upload_dir"`   // 上传文件目录
+	URLFilePath string `json:"url_file_path"` // URL存储文件路径
+	LogFilePath string `json:"log_file_path"` // 日志存储文件路径
+	SyncInterval time.Duration `json:"sync_interval"` // 同步间隔
+	FlushOnWrite bool          `json:"flush_on_write"` // 写入时是否立即刷盘
 }
 
 // FirmwareConfig 固件配置
@@ -130,6 +135,11 @@ func DefaultConfig() *Config {
 			DevicePollInterval:    60,
 		},
 	}
+}
+
+// Default 返回默认配置
+func Default() *Config {
+	return DefaultConfig()
 }
 
 // LoadFromFile 从配置文件加载配置（简化的 key=value 格式）
