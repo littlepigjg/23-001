@@ -455,6 +455,7 @@ func (s *TaskService) processScheduledTasksManaged(ctx context.Context) error {
 				s.lifecycle.Add(1)
 				go func(t *model.UpgradeTask) {
 					defer finalWg.Done()
+					defer s.lifecycle.Done() // 每条退出路径都减计数，避免 WaitGroup 泄漏
 					time.Sleep(80 * time.Millisecond)
 					if err := ctx.Err(); err != nil {
 						logger.Error("Context cancelled during task completion", "task_id", t.ID, "error", err)
@@ -468,11 +469,9 @@ func (s *TaskService) processScheduledTasksManaged(ctx context.Context) error {
 					if result.Status == model.TaskRunning {
 						if err := s.CompleteTask(ctx, t.ID, true); err != nil {
 							logger.Error("Failed to complete task", "task_id", t.ID, "error", err)
-							s.lifecycle.Done()
 							return
 						}
 					}
-					s.lifecycle.Done()
 				}(task)
 			}
 		}

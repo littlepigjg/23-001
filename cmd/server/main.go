@@ -14,6 +14,7 @@ import (
 
 	"fwupgrade/internal/config"
 	"fwupgrade/internal/handler"
+	"fwupgrade/internal/service"
 	"fwupgrade/internal/store"
 	"fwupgrade/pkg/logger"
 )
@@ -66,9 +67,11 @@ func main() {
 		appStore = store.NewMemoryStore()
 	}
 
-	// 初始化存储上下文
-	ctx := context.Background()
-	if err := appStore.Init(ctx); err != nil {
+	// 初始化存储上下文：可取消的根 context，关闭时级联取消 autoSave、调度器与在途 worker
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	defer rootCancel()
+
+	if err := appStore.Init(rootCtx); err != nil {
 		logger.Fatalf("Failed to initialize store: %v", err)
 	}
 
@@ -76,9 +79,12 @@ func main() {
 	ensureDir(cfg.Storage.UploadDir)
 	ensureDir(cfg.Server.StaticDir)
 
-	// 创建路由和处理器
+	// 创建服务生命周期管理器（main 持有句柄，关闭时调用 lifecycle.Stop 排空后台 goroutine）
+	lifecycle := service.NewServiceLifecycle()
+
+	// 创建路由和处理器，并启动后台调度器
 	router := handler.NewRouter(cfg)
-	handler.Setup(router, cfg, appStore)
+	handler.Setup(router, cfg, appStore, lifecycle, rootCtx)
 
 	// 创建 HTTP 服务器
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
@@ -105,17 +111,27 @@ func main() {
 	sig := <-quit
 	logger.Infof("Received signal: %v, shutting down...", sig)
 
-	// 创建带超时的关闭上下文
+	// 1) 取消根 context：级联取消 autoSave、轮询调度、任务调度及在途 worker。
+	//    关键：lifecycle.Stop 只取消生命周期内部的子 ctx（轮询侧），
+	//    任务侧 worker 与 autoSave 持有的是 rootCtx，必须靠 rootCancel 级联取消。
+	rootCancel()
+
+	// 2) 排空受生命周期管理的后台 goroutine（轮询循环/worker、任务 worker、任务调度循环）。
+	//    它们均尊重 ctx，~80ms 内退出；超时兜底为 ShutdownTimeout。
+	if err := lifecycle.Stop(time.Duration(cfg.Server.ShutdownTimeout) * time.Second); err != nil {
+		logger.Errorf("Lifecycle stop error: %v", err)
+	}
+
+	// 3) 优雅关闭 HTTP：此时不再有新的后台任务被调度，排空在途请求
 	shutdownCtx, cancel := context.WithTimeout(context.Background(),
 		time.Duration(cfg.Server.ShutdownTimeout)*time.Second)
 	defer cancel()
 
-	// 优雅关闭服务器
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Errorf("HTTP server shutdown error: %v", err)
 	}
 
-	// 关闭存储
+	// 4) 关闭存储刷盘：autoSave 已在步骤 1 被取消并退出
 	if err := appStore.Close(); err != nil {
 		logger.Errorf("Store close error: %v", err)
 	}

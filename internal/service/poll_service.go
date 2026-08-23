@@ -345,6 +345,7 @@ func (s *PollService) runPollCycleManaged(ctx context.Context) {
 
 		s.lifecycle.Add(1)
 		go func(reqs []*model.PollUpgradeRequest) {
+			defer s.lifecycle.Done() // 每条退出路径都减计数，避免 WaitGroup 泄漏
 			time.Sleep(80 * time.Millisecond)
 			resp, err := s.PollMultipleDevices(ctx, reqs)
 			if err != nil {
@@ -352,7 +353,6 @@ func (s *PollService) runPollCycleManaged(ctx context.Context) {
 				return
 			}
 			_ = resp
-			s.lifecycle.Done()
 		}(requests)
 	}
 }

@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"fwupgrade/internal/config"
 	"fwupgrade/internal/service"
@@ -11,8 +13,9 @@ import (
 	"fwupgrade/pkg/response"
 )
 
-// Setup 配置所有路由和处理器
-func Setup(router *Router, cfg *config.Config, appStore store.Store) {
+// Setup 配置所有路由和处理器，并启动后台调度器（轮询调度、任务调度）。
+// lifecycle 与 rootCtx 由 main 持有，关闭时由 main 取消 rootCtx 并调用 lifecycle.Stop 排空后台 goroutine。
+func Setup(router *Router, cfg *config.Config, appStore store.Store, lifecycle *service.ServiceLifecycle, rootCtx context.Context) {
 	logger.Info("Setting up API routes")
 
 	// 创建服务实例
@@ -32,6 +35,21 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 	progressService := service.NewProgressService(deviceStore, recordStore, taskStore)
 	historyService := service.NewHistoryService(recordStore)
 	statsService := service.NewStatsService(deviceStore, modelStore, firmwareStore, taskStore, recordStore)
+
+	// 绑定服务生命周期，并启动后台调度器
+	pollService.SetLifecycle(lifecycle)
+	taskService.SetLifecycle(lifecycle)
+
+	// 轮询调度器：runManagedPolling 内部自 spawn 受管 goroutine 并返回
+	pollService.SchedulePolling(rootCtx, time.Duration(cfg.Grayscale.DevicePollInterval)*time.Second)
+
+	// 任务调度器：ProcessScheduledTasks 是一次性的，用 ticker 循环包装
+	taskInterval := time.Duration(cfg.Grayscale.UpgradeInterval) * time.Second
+	lifecycle.Add(1)
+	go func() {
+		defer lifecycle.Done()
+		taskSchedulerLoop(rootCtx, taskService, taskInterval)
+	}()
 
 	// 初始化处理器
 	healthHandler := NewHealthHandler(cfg)
@@ -374,4 +392,24 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 	}
 
 	logger.Info("Routes setup complete")
+}
+
+// taskSchedulerLoop 周期性调用 ProcessScheduledTasks，尊重 rootCtx 取消以支持优雅关闭
+func taskSchedulerLoop(ctx context.Context, ts *service.TaskService, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	logger.Info("Task scheduler started", "interval", interval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("Task scheduler stopped")
+			return
+		case <-ticker.C:
+			if err := ts.ProcessScheduledTasks(ctx); err != nil {
+				logger.Error("Scheduled task processing failed", "error", err)
+			}
+		}
+	}
 }
