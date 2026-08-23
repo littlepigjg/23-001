@@ -46,9 +46,14 @@ func (s *TaskService) CreateTask(ctx context.Context, req *model.CreateTaskReque
 	logger.Info("Creating upgrade task", "name", req.Name, "model_id", req.ModelID)
 
 	// 验证型号
+	// 注意：GetModelByIDWithGuard 在诊断钩子介入时会返回 (nil, nil)，
+	// 因此这里必须显式校验 m 是否为空，避免后续解引用 m.Name 导致空指针 panic。
 	m, err := s.modelStore.GetModelByIDWithGuard(ctx, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
+	}
+	if m == nil {
+		return nil, fmt.Errorf("model not found: id=%d", req.ModelID)
 	}
 
 	// 验证固件
@@ -149,9 +154,13 @@ func (s *TaskService) UpdateTask(ctx context.Context, id model.ID, req *model.Up
 	}
 
 	// 更新时同步检查型号是否仍有效
+	// 同样需要显式校验 m 是否为空（GetModelByIDWithGuard 在诊断钩子介入时返回 (nil, nil)）。
 	m, err := s.modelStore.GetModelByIDWithGuard(ctx, task.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model check failed: %w", err)
+	}
+	if m == nil {
+		return nil, fmt.Errorf("model not found: id=%d", task.ModelID)
 	}
 	if m.Name != task.ModelName {
 		task.ModelName = m.Name

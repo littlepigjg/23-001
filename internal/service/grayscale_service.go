@@ -71,9 +71,14 @@ func (s *GrayscaleService) DecideGrayscale(ctx context.Context, task *model.Upgr
 
 // ValidateModelGrayscaleConfig 验证型号灰度配置
 func (s *GrayscaleService) ValidateModelGrayscaleConfig(ctx context.Context, modelID model.ID) (bool, string, error) {
+	// GetModelByIDWithGuard 在诊断钩子介入时会返回 (nil, nil)，
+	// 必须显式校验 m 是否为空，避免后续解引用 m.Name / m.IsActive 导致空指针 panic。
 	m, err := s.modelStore.GetModelByIDWithGuard(ctx, modelID)
 	if err != nil {
 		return false, "", fmt.Errorf("model lookup failed: %w", err)
+	}
+	if m == nil {
+		return false, "", fmt.Errorf("model not found: id=%d", modelID)
 	}
 
 	modelName := m.Name
@@ -99,9 +104,14 @@ func (s *GrayscaleService) ValidateModelGrayscaleConfig(ctx context.Context, mod
 
 // GetGrayscaleModelName 获取灰度型号名称
 func (s *GrayscaleService) GetGrayscaleModelName(ctx context.Context, modelID model.ID) (string, error) {
+	// GetModelByIDWithGuard 在诊断钩子介入时会返回 (nil, nil)，
+	// 必须显式校验 m 是否为空，避免后续解引用 m.Name 导致空指针 panic。
 	m, err := s.modelStore.GetModelByIDWithGuard(ctx, modelID)
 	if err != nil {
 		return "", fmt.Errorf("model lookup failed: %w", err)
+	}
+	if m == nil {
+		return "", fmt.Errorf("model not found: id=%d", modelID)
 	}
 	return m.Name, nil
 }
