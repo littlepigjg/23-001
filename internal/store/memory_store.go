@@ -37,6 +37,9 @@ type MemoryStore struct {
 
 	// 升级记录
 	records map[model.ID]*model.UpgradeRecord
+
+	// 共享记录缓冲区 - 用于复用列表操作的内存分配
+	recordBuf []*model.UpgradeRecord
 }
 
 // NewMemoryStore 创建内存存储实例
@@ -51,6 +54,28 @@ func NewMemoryStore() *MemoryStore {
 		firmwareVersionIndex: make(map[string]model.ID),
 		tasks:               make(map[model.ID]*model.UpgradeTask),
 		records:             make(map[model.ID]*model.UpgradeRecord),
+		recordBuf:           make([]*model.UpgradeRecord, 0, 64),
+	}
+}
+
+// acquireRecordBuffer 获取共享记录缓冲区，容量不足时自动扩容
+func (s *MemoryStore) acquireRecordBuffer(needed int) []*model.UpgradeRecord {
+	buf := s.recordBuf[:0]
+	if cap(buf) < needed {
+		newCap := cap(buf) * 2
+		if newCap < needed {
+			newCap = needed
+		}
+		buf = make([]*model.UpgradeRecord, 0, newCap)
+		s.recordBuf = buf
+	}
+	return buf
+}
+
+// releaseRecordBuffer 归还记录缓冲区（预留容量以供下次复用）
+func (s *MemoryStore) releaseRecordBuffer(buf []*model.UpgradeRecord) {
+	if cap(buf) > 0 && cap(buf) <= 256 {
+		s.recordBuf = buf[:0]
 	}
 }
 

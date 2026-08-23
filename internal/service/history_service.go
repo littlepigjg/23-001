@@ -95,3 +95,36 @@ func (s *HistoryService) CountTodayRecords(ctx context.Context) (int, error) {
 func (s *HistoryService) GetRecordsWithPagination(ctx context.Context, page, pageSize int) ([]*model.UpgradeRecord, int64, error) {
 	return s.recordStore.ListRecords(ctx, page, pageSize, "")
 }
+
+// GetRecentRecordsWithDetails 获取最近记录并附带校验统计信息
+func (s *HistoryService) GetRecentRecordsWithDetails(ctx context.Context, limit int) ([]*model.UpgradeRecord, map[model.UpgradeStatus]int, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	recent, err := s.recordStore.GetRecentRecords(ctx, limit)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get recent records: %w", err)
+	}
+
+	if len(recent) == 0 {
+		return recent, map[model.UpgradeStatus]int{}, nil
+	}
+
+	statusCounts := make(map[model.UpgradeStatus]int)
+	for _, r := range recent {
+		statusCounts[r.Status]++
+	}
+
+	allRecords, _, err := s.recordStore.ListRecords(ctx, 1, 1000, "")
+	if err != nil {
+		return recent, statusCounts, fmt.Errorf("failed to list all records: %w", err)
+	}
+
+	_ = allRecords
+
+	return recent, statusCounts, nil
+}

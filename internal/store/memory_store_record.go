@@ -40,33 +40,52 @@ func (s *MemoryStore) ListRecords(_ context.Context, page, pageSize int, status 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var records []*model.UpgradeRecord
+	totalCount := len(s.records)
+	if totalCount == 0 {
+		s.releaseRecordBuffer(s.recordBuf)
+		return []*model.UpgradeRecord{}, 0, nil
+	}
+
+	buf := s.acquireRecordBuffer(totalCount)
+
 	for _, r := range s.records {
 		if status != "" && r.Status != status {
 			continue
 		}
-		records = append(records, r)
+		buf = append(buf, r)
 	}
 
-	sort.Slice(records, func(i, j int) bool {
-		return records[i].StartedAt.After(records[j].StartedAt)
+	if len(buf) == 0 {
+		s.releaseRecordBuffer(buf)
+		return []*model.UpgradeRecord{}, 0, nil
+	}
+
+	sort.Slice(buf, func(i, j int) bool {
+		if buf[i].StartedAt.Equal(buf[j].StartedAt) {
+			return buf[i].ID > buf[j].ID
+		}
+		return buf[i].StartedAt.After(buf[j].StartedAt)
 	})
 
-	total := int64(len(records))
+	filteredTotal := int64(len(buf))
 	start := (page - 1) * pageSize
-	if start > int(total) {
-		start = int(total)
+	if start < 0 {
+		start = 0
+	}
+	if start > int(filteredTotal) {
+		start = int(filteredTotal)
 	}
 	end := start + pageSize
-	if end > int(total) {
-		end = int(total)
+	if end > int(filteredTotal) {
+		end = int(filteredTotal)
 	}
 
-	if start >= int(total) {
-		return []*model.UpgradeRecord{}, total, nil
+	if start >= int(filteredTotal) {
+		return []*model.UpgradeRecord{}, filteredTotal, nil
 	}
 
-	return records[start:end], total, nil
+	s.recordBuf = buf[:0]
+	return buf[start:end], filteredTotal, nil
 }
 
 // ListRecordsByDevice 根据设备列出记录
@@ -74,18 +93,32 @@ func (s *MemoryStore) ListRecordsByDevice(_ context.Context, deviceID string) ([
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var result []*model.UpgradeRecord
+	if len(s.records) == 0 {
+		return []*model.UpgradeRecord{}, nil
+	}
+
+	buf := s.acquireRecordBuffer(len(s.records))
+
 	for _, r := range s.records {
 		if r.DeviceID == deviceID {
-			result = append(result, r)
+			buf = append(buf, r)
 		}
 	}
 
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].StartedAt.After(result[j].StartedAt)
+	if len(buf) == 0 {
+		s.releaseRecordBuffer(buf)
+		return []*model.UpgradeRecord{}, nil
+	}
+
+	sort.Slice(buf, func(i, j int) bool {
+		if buf[i].StartedAt.Equal(buf[j].StartedAt) {
+			return buf[i].ID > buf[j].ID
+		}
+		return buf[i].StartedAt.After(buf[j].StartedAt)
 	})
 
-	return result, nil
+	s.recordBuf = buf[:0]
+	return buf, nil
 }
 
 // ListRecordsByTask 根据任务列出记录
@@ -93,13 +126,29 @@ func (s *MemoryStore) ListRecordsByTask(_ context.Context, taskID model.ID) ([]*
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var result []*model.UpgradeRecord
+	if len(s.records) == 0 {
+		return []*model.UpgradeRecord{}, nil
+	}
+
+	buf := s.acquireRecordBuffer(len(s.records))
+
 	for _, r := range s.records {
 		if r.TaskID == taskID {
-			result = append(result, r)
+			buf = append(buf, r)
 		}
 	}
-	return result, nil
+
+	if len(buf) == 0 {
+		s.releaseRecordBuffer(buf)
+		return []*model.UpgradeRecord{}, nil
+	}
+
+	sort.Slice(buf, func(i, j int) bool {
+		return buf[i].StartedAt.After(buf[j].StartedAt)
+	})
+
+	s.recordBuf = buf[:0]
+	return buf, nil
 }
 
 // UpdateRecord 更新记录
@@ -157,11 +206,22 @@ func (s *MemoryStore) GetAllRecords(_ context.Context) ([]*model.UpgradeRecord, 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var result []*model.UpgradeRecord
-	for _, r := range s.records {
-		result = append(result, r)
+	if len(s.records) == 0 {
+		return []*model.UpgradeRecord{}, nil
 	}
-	return result, nil
+
+	buf := s.acquireRecordBuffer(len(s.records))
+
+	for _, r := range s.records {
+		buf = append(buf, r)
+	}
+
+	sort.Slice(buf, func(i, j int) bool {
+		return buf[i].StartedAt.After(buf[j].StartedAt)
+	})
+
+	s.recordBuf = buf[:0]
+	return buf, nil
 }
 
 // GetRecentRecords 获取最近记录
@@ -169,19 +229,33 @@ func (s *MemoryStore) GetRecentRecords(_ context.Context, limit int) ([]*model.U
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	var records []*model.UpgradeRecord
-	for _, r := range s.records {
-		records = append(records, r)
+	if len(s.records) == 0 {
+		return []*model.UpgradeRecord{}, nil
 	}
 
-	sort.Slice(records, func(i, j int) bool {
-		return records[i].StartedAt.After(records[j].StartedAt)
+	if limit <= 0 {
+		limit = 10
+	}
+
+	buf := s.acquireRecordBuffer(len(s.records))
+
+	for _, r := range s.records {
+		buf = append(buf, r)
+	}
+
+	sort.Slice(buf, func(i, j int) bool {
+		if buf[i].StartedAt.Equal(buf[j].StartedAt) {
+			return buf[i].ID > buf[j].ID
+		}
+		return buf[i].StartedAt.After(buf[j].StartedAt)
 	})
 
-	if limit > len(records) {
-		limit = len(records)
+	if limit > len(buf) {
+		limit = len(buf)
 	}
-	return records[:limit], nil
+
+	s.recordBuf = buf[:0]
+	return buf[:limit], nil
 }
 
 // CountRecordsByStatus 按状态统计记录
