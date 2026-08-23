@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -15,14 +16,12 @@ import (
 func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 	logger.Info("Setting up API routes")
 
-	// 创建服务实例
 	modelStore := appStore
 	deviceStore := appStore
 	firmwareStore := appStore
 	taskStore := appStore
 	recordStore := appStore
 
-	// 初始化服务
 	deviceModelService := service.NewDeviceModelService(modelStore, cfg)
 	deviceService := service.NewDeviceService(deviceStore, modelStore, cfg)
 	firmwareService := service.NewFirmwareService(firmwareStore, modelStore, cfg)
@@ -33,7 +32,8 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 	historyService := service.NewHistoryService(recordStore)
 	statsService := service.NewStatsService(deviceStore, modelStore, firmwareStore, taskStore, recordStore)
 
-	// 初始化处理器
+	statsService.StartCollector(context.Background())
+
 	healthHandler := NewHealthHandler(cfg)
 	modelHandler := NewDeviceModelHandler(deviceModelService, cfg)
 	deviceHandler := NewDeviceHandler(deviceService, cfg)
@@ -44,11 +44,9 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 	historyHandler := NewHistoryHandler(historyService, cfg)
 	statsHandler := NewStatsHandler(statsService, cfg)
 
-	// --- 健康检查路由 ---
 	router.HandleFunc("/health", healthHandler.Health)
 	router.HandleFunc("/ready", healthHandler.Ready)
 
-	// --- 设备型号路由 ---
 	router.HandleFunc("/api/models", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -72,7 +70,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		}
 	})
 
-	// --- 设备路由 ---
 	router.HandleFunc("/api/devices", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -87,7 +84,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		path := r.URL.Path
 		parts := strings.Split(strings.Trim(path, "/"), "/")
 
-		// /api/devices/batch
 		if len(parts) >= 3 && parts[2] == "batch" {
 			if r.Method == http.MethodPost {
 				deviceHandler.BatchCreate(w, r)
@@ -95,7 +91,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 			}
 		}
 
-		// /api/devices/search
 		if len(parts) >= 3 && parts[2] == "search" {
 			if r.Method == http.MethodGet {
 				deviceHandler.Search(w, r)
@@ -103,7 +98,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 			}
 		}
 
-		// /api/devices/status
 		if len(parts) >= 3 && parts[2] == "status" {
 			if r.Method == http.MethodGet {
 				deviceHandler.GetStatus(w, r)
@@ -111,7 +105,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 			}
 		}
 
-		// /api/devices/register
 		if len(parts) >= 3 && parts[2] == "register" {
 			if r.Method == http.MethodPost {
 				deviceHandler.Register(w, r)
@@ -119,7 +112,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 			}
 		}
 
-		// /api/devices/{id}
 		switch r.Method {
 		case http.MethodGet:
 			deviceHandler.Get(w, r)
@@ -132,7 +124,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		}
 	})
 
-	// --- 固件路由 ---
 	router.HandleFunc("/api/firmware", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -147,7 +138,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		path := r.URL.Path
 		parts := strings.Split(strings.Trim(path, "/"), "/")
 
-		// /api/firmware/{id}/download
 		if len(parts) >= 3 && parts[2] == "download" {
 			if r.Method == http.MethodGet {
 				r.URL.Path = "/api/firmware/" + parts[1]
@@ -168,7 +158,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		}
 	})
 
-	// --- 任务路由 ---
 	router.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -183,7 +172,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		path := r.URL.Path
 		parts := strings.Split(strings.Trim(path, "/"), "/")
 
-		// /api/tasks/{id}/start
 		if len(parts) >= 3 && parts[2] == "start" {
 			if r.Method == http.MethodPost {
 				r.URL.Path = "/api/tasks/" + parts[1]
@@ -192,7 +180,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 			}
 		}
 
-		// /api/tasks/{id}/cancel
 		if len(parts) >= 3 && parts[2] == "cancel" {
 			if r.Method == http.MethodPost {
 				r.URL.Path = "/api/tasks/" + parts[1]
@@ -201,7 +188,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 			}
 		}
 
-		// /api/tasks/{id}/progress
 		if len(parts) >= 3 && parts[2] == "progress" {
 			if r.Method == http.MethodGet {
 				r.URL.Path = "/api/tasks/" + parts[1]
@@ -222,7 +208,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		}
 	})
 
-	// --- 轮询路由 ---
 	router.HandleFunc("/api/poll", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -239,7 +224,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		}
 	})
 
-	// --- 进度路由 ---
 	router.HandleFunc("/api/progress", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodPost:
@@ -265,7 +249,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		}
 	})
 
-	// --- 历史记录路由 ---
 	router.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -306,7 +289,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		}
 	})
 
-	// --- 统计路由 ---
 	router.HandleFunc("/api/stats/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			statsHandler.Dashboard(w, r)
@@ -350,7 +332,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		}
 	})
 
-	// --- 初始化示例数据路由 ---
 	router.HandleFunc("/api/init/sample", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			createSampleData(r, deviceModelService, deviceService, firmwareService, taskService, grayscaleService)
@@ -360,7 +341,6 @@ func Setup(router *Router, cfg *config.Config, appStore store.Store) {
 		}
 	})
 
-	// --- 静态文件服务 ---
 	webDir := cfg.Server.StaticDir
 	if webDir != "" {
 		logger.Info("Serving static files", "dir", webDir)

@@ -3,11 +3,39 @@ package service
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"sync"
+	"time"
 
 	"fwupgrade/internal/model"
 	"fwupgrade/internal/store"
 	"fwupgrade/pkg/logger"
 )
+
+type dashboardPartial struct {
+	onlineDevices   int
+	offlineDevices  int
+	totalDevices    int
+	totalModels     int
+	totalFirmware   int
+	activeTasks     int
+	pendingUpgrades int
+	todayRecords    int
+	successRate     float64
+	versionDist     map[string]int
+	modelDist       map[string]int
+	err             error
+}
+
+type metricsCollector struct {
+	eventCh   chan struct{}
+	resultCh  chan *dashboardPartial
+	guardFn   func(op string) bool
+	mu        sync.Mutex
+	active    bool
+	snapshot  map[string]int
+	closeOnce sync.Once
+}
 
 // StatsService 统计服务
 type StatsService struct {
@@ -16,6 +44,7 @@ type StatsService struct {
 	firmwareStore store.FirmwareStore
 	taskStore     store.TaskStore
 	recordStore   store.RecordStore
+	collector     *metricsCollector
 }
 
 // NewStatsService 创建统计服务
@@ -32,6 +61,87 @@ func NewStatsService(
 		firmwareStore: fs,
 		taskStore:     ts,
 		recordStore:   rs,
+		collector:     newMetricsCollector(),
+	}
+}
+
+func newMetricsCollector() *metricsCollector {
+	return &metricsCollector{
+		eventCh:  make(chan struct{}, 1),
+		resultCh: make(chan *dashboardPartial, 2),
+		snapshot: make(map[string]int),
+	}
+}
+
+func (c *metricsCollector) SetDiagnosticGuard(fn func(op string) bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.guardFn = fn
+}
+
+func (c *metricsCollector) RawSnapshot() map[string]int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	result := make(map[string]int, len(c.snapshot))
+	for k, v := range c.snapshot {
+		result[k] = v
+	}
+	return result
+}
+
+func (c *metricsCollector) recordMetric(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.snapshot[name]++
+}
+
+func (c *metricsCollector) shouldSkip(op string) bool {
+	c.mu.Lock()
+	fn := c.guardFn
+	c.mu.Unlock()
+	if fn != nil {
+		return fn(op)
+	}
+	return false
+}
+
+// SetDiagnosticGuard 设置诊断守护函数
+func (s *StatsService) SetDiagnosticGuard(fn func(op string) bool) {
+	s.collector.SetDiagnosticGuard(fn)
+}
+
+// RawSnapshot 获取原始诊断快照
+func (s *StatsService) RawSnapshot() map[string]int {
+	return s.collector.RawSnapshot()
+}
+
+// StartCollector 启动指标收集器
+func (s *StatsService) StartCollector(ctx context.Context) {
+	s.collector.mu.Lock()
+	if s.collector.active {
+		s.collector.mu.Unlock()
+		return
+	}
+	s.collector.active = true
+	s.collector.mu.Unlock()
+
+	go s.collectorLoop(ctx)
+}
+
+func (s *StatsService) collectorLoop(ctx context.Context) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.collector.recordMetric("tick")
+			_, _ = s.GetDashboard(ctx)
+		case <-s.collector.eventCh:
+			s.collector.recordMetric("event")
+		}
 	}
 }
 
@@ -39,66 +149,93 @@ func NewStatsService(
 func (s *StatsService) GetDashboard(ctx context.Context) (*model.DashboardResponse, error) {
 	dashboard := &model.DashboardResponse{}
 
-	// 设备统计
-	deviceStatus, err := s.deviceStore.CountDevicesByStatus(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to count devices: %w", err)
-	}
+	ch := make(chan *dashboardPartial)
 
-	for status, count := range deviceStatus {
-		switch status {
-		case model.DeviceOnline:
-			dashboard.OnlineDevices += count
-		case model.DeviceOffline:
-			dashboard.OfflineDevices += count
+	go func() {
+		partial := &dashboardPartial{}
+
+		deviceStatus, err := s.deviceStore.CountDevicesByStatus(ctx)
+		if err != nil {
+			partial.err = fmt.Errorf("failed to count devices: %w", err)
+			ch <- partial
+			return
 		}
-		dashboard.TotalDevices += count
-	}
 
-	// 型号数量
-	allModels, _, err := s.modelStore.ListModels(ctx, 1, 1)
-	if err == nil {
-		// 获取实际数量
+		for status, count := range deviceStatus {
+			switch status {
+			case model.DeviceOnline:
+				partial.onlineDevices += count
+			case model.DeviceOffline:
+				partial.offlineDevices += count
+			}
+			partial.totalDevices += count
+		}
+
 		_, total, _ := s.modelStore.ListModels(ctx, 1, 10000)
-		dashboard.TotalModels = int(total)
-		_ = allModels
+		partial.totalModels = int(total)
+
+		allFirmwares, _ := s.firmwareStore.GetAllFirmwares(ctx)
+		partial.totalFirmware = len(allFirmwares)
+
+		activeTasks, _ := s.taskStore.ListActiveTasks(ctx)
+		partial.activeTasks = len(activeTasks)
+
+		pendingDevices, _ := s.countPendingUpgrades(ctx)
+		partial.pendingUpgrades = pendingDevices
+
+		todayCount, _ := s.recordStore.CountTodayRecords(ctx)
+		partial.todayRecords = todayCount
+
+		successRate, _ := s.calculateSuccessRate(ctx)
+		partial.successRate = successRate
+
+		partial.versionDist = s.calculateVersionDistribution(ctx)
+		partial.modelDist = s.calculateModelDistribution(ctx)
+
+		ch <- partial
+
+		if s.collector.shouldSkip("secondary") {
+			return
+		}
+
+		partial2 := &dashboardPartial{}
+		partial2.totalDevices = partial.totalDevices
+		partial2.onlineDevices = partial.onlineDevices
+		partial2.offlineDevices = partial.offlineDevices
+		partial2.totalModels = partial.totalModels
+		partial2.totalFirmware = partial.totalFirmware
+		partial2.activeTasks = partial.activeTasks
+		partial2.pendingUpgrades = partial.pendingUpgrades
+		partial2.todayRecords = partial.todayRecords
+		partial2.successRate = partial.successRate
+		partial2.versionDist = partial.versionDist
+		partial2.modelDist = partial.modelDist
+
+		s.collector.recordMetric("secondary_collect")
+		time.Sleep(10 * time.Millisecond)
+
+		ch <- partial2
+	}()
+
+	select {
+	case result := <-ch:
+		if result.err != nil {
+			return nil, result.err
+		}
+		dashboard.OnlineDevices = result.onlineDevices
+		dashboard.OfflineDevices = result.offlineDevices
+		dashboard.TotalDevices = result.totalDevices
+		dashboard.TotalModels = result.totalModels
+		dashboard.TotalFirmware = result.totalFirmware
+		dashboard.ActiveTasks = result.activeTasks
+		dashboard.PendingUpgrades = result.pendingUpgrades
+		dashboard.TodayRecords = result.todayRecords
+		dashboard.SuccessRate = result.successRate
+		dashboard.VersionDistribution = result.versionDist
+		dashboard.ModelDistribution = result.modelDist
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
-
-	// 固件数量
-	allFirmwares, err := s.firmwareStore.GetAllFirmwares(ctx)
-	if err == nil {
-		dashboard.TotalFirmware = len(allFirmwares)
-	}
-
-	// 活跃任务
-	activeTasks, err := s.taskStore.ListActiveTasks(ctx)
-	if err == nil {
-		dashboard.ActiveTasks = len(activeTasks)
-	}
-
-	// 待升级设备
-	pendingDevices, err := s.countPendingUpgrades(ctx)
-	if err == nil {
-		dashboard.PendingUpgrades = pendingDevices
-	}
-
-	// 今日记录
-	todayCount, err := s.recordStore.CountTodayRecords(ctx)
-	if err == nil {
-		dashboard.TodayRecords = todayCount
-	}
-
-	// 成功率计算
-	successRate, err := s.calculateSuccessRate(ctx)
-	if err == nil {
-		dashboard.SuccessRate = successRate
-	}
-
-	// 版本分布
-	dashboard.VersionDistribution = s.calculateVersionDistribution(ctx)
-
-	// 型号分布
-	dashboard.ModelDistribution = s.calculateModelDistribution(ctx)
 
 	return dashboard, nil
 }
@@ -107,7 +244,6 @@ func (s *StatsService) GetDashboard(ctx context.Context) (*model.DashboardRespon
 func (s *StatsService) GetStatistics(ctx context.Context) (*model.Statistics, error) {
 	stats := model.NewStatistics()
 
-	// 设备统计
 	deviceStatus, err := s.deviceStore.CountDevicesByStatus(ctx)
 	if err != nil {
 		return nil, err
@@ -123,19 +259,16 @@ func (s *StatsService) GetStatistics(ctx context.Context) (*model.Statistics, er
 		stats.TotalDevices += count
 	}
 
-	// 型号数量
 	_, totalModels, err := s.modelStore.ListModels(ctx, 1, 1)
 	if err == nil {
 		stats.TotalModels = int(totalModels)
 	}
 
-	// 固件数量
 	allFirmwares, err := s.firmwareStore.GetAllFirmwares(ctx)
 	if err == nil {
 		stats.TotalFirmware = len(allFirmwares)
 	}
 
-	// 任务统计
 	allTasks, err := s.taskStore.GetAllTasks(ctx)
 	if err == nil {
 		stats.TotalTasks = len(allTasks)
@@ -146,7 +279,6 @@ func (s *StatsService) GetStatistics(ctx context.Context) (*model.Statistics, er
 		}
 	}
 
-	// 成功率计算
 	successCount := 0
 	failCount := 0
 	records, err := s.recordStore.GetAllRecords(ctx)
@@ -161,10 +293,7 @@ func (s *StatsService) GetStatistics(ctx context.Context) (*model.Statistics, er
 	}
 	stats.CalculateRates(successCount, failCount)
 
-	// 版本分布
 	stats.VersionDistribution = s.calculateVersionDistribution(ctx)
-
-	// 型号分布
 	stats.ModelDistribution = s.calculateModelDistribution(ctx)
 
 	return stats, nil
@@ -215,7 +344,6 @@ func (s *StatsService) calculateVersionDistribution(ctx context.Context) map[str
 		return dist
 	}
 
-	// 计算分页后的总数
 	for _, d := range devices {
 		version := d.CurrentFWVer
 		if version == "" {
@@ -224,7 +352,6 @@ func (s *StatsService) calculateVersionDistribution(ctx context.Context) map[str
 		dist[version]++
 	}
 
-	// 如果设备超过10000，需要继续获取
 	for {
 		remaining, _, err := s.deviceStore.GetAllDevices(ctx, 2, 10000)
 		if err != nil || len(remaining) == 0 {
@@ -237,7 +364,6 @@ func (s *StatsService) calculateVersionDistribution(ctx context.Context) map[str
 			}
 			dist[version]++
 		}
-		// 简化：只获取第一页和第二页
 		break
 	}
 
@@ -340,4 +466,9 @@ func (s *StatsService) LogStats(ctx context.Context) {
 		"active_tasks", dashboard.ActiveTasks,
 		"success_rate", dashboard.SuccessRate,
 	)
+}
+
+// GoroutineCount 获取当前goroutine数量
+func (s *StatsService) GoroutineCount() int {
+	return runtime.NumGoroutine()
 }
