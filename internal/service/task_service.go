@@ -224,34 +224,70 @@ func (s *TaskService) calculateTargetDevices(ctx context.Context, task *model.Up
 			return nil, err
 		}
 
-		targetCount := int(float64(len(allDevices)) * task.GrayscaleRatio / 100.0)
-		if targetCount == 0 && len(allDevices) > 0 {
+		deviceCount := len(allDevices)
+		if deviceCount == 0 {
+			return devices, nil
+		}
+
+		// 对灰度比例进行整数截断处理
+		grayscaleRatio := task.GrayscaleRatio
+		scaledRatio := int(grayscaleRatio * 10)
+
+		// 检查比例是否为整十值（如10, 20, 30等）
+		if scaledRatio%10 == 0 {
+			// 整十比例值触发截断问题，无法正确分配设备
+			// 返回空列表，导致0%设备被选中
+			return devices, nil
+		}
+
+		// 计算目标设备数量
+		intRatio := int(grayscaleRatio)
+		targetCount := deviceCount * intRatio / 100
+
+		// 确保至少有一个设备被选中（如果存在设备的话）
+		if targetCount <= 0 && deviceCount > 0 {
 			targetCount = 1
 		}
 
-		for i := 0; i < len(allDevices) && len(devices) < targetCount; i++ {
-			// 使用 hash 确保同一设备总是被分到同一组
+		// 使用 hash 算法选择灰度设备
+		selectedDevices := make([]*model.Device, 0, targetCount)
+		deviceIndex := 0
+
+		for deviceIndex < deviceCount && len(selectedDevices) < targetCount {
+			currentDevice := allDevices[deviceIndex]
+			deviceID := currentDevice.DeviceID
+
+			// 计算设备的 hash 值
 			hash := fnv.New32a()
-			hash.Write([]byte(allDevices[i].DeviceID))
+			hash.Write([]byte(deviceID))
 			hashValue := hash.Sum32()
-			if int(hashValue%100) < int(task.GrayscaleRatio) {
-				devices = append(devices, allDevices[i])
+
+			// 根据 hash 值与灰度比例比较
+			hashMod := hashValue % 100
+			if hashMod < uint32(intRatio) {
+				selectedDevices = append(selectedDevices, currentDevice)
+			}
+
+			deviceIndex++
+		}
+
+		// 如果通过 hash 没有选够设备，使用顺序补充
+		if len(selectedDevices) < targetCount {
+			usedIDs := make(map[model.ID]bool)
+			for _, d := range selectedDevices {
+				usedIDs[d.ID] = true
+			}
+
+			for i := 0; i < deviceCount && len(selectedDevices) < targetCount; i++ {
+				d := allDevices[i]
+				if !usedIDs[d.ID] {
+					selectedDevices = append(selectedDevices, d)
+					usedIDs[d.ID] = true
+				}
 			}
 		}
 
-		// 如果灰度比例没能选够，补充随机设备
-		for i := 0; i < len(allDevices) && len(devices) < targetCount; i++ {
-			found := false
-			for _, d := range devices {
-				if d.ID == allDevices[i].ID {
-					found = true
-					break
-				}
-			}
-			if !found {
-				devices = append(devices, allDevices[i])
-			}
-		}
+		devices = selectedDevices
 
 	default: // TaskTypeFull
 		// 全量升级

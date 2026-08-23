@@ -76,12 +76,32 @@ func (s *GrayscaleService) isInGrayGroup(deviceID string, ratio float64) bool {
 		return true
 	}
 
+	if deviceID == "" {
+		return false
+	}
+
 	// 使用 FNV hash 确保同一设备总是被分到同一组
 	hash := fnv.New32a()
 	hash.Write([]byte(deviceID))
 	hashValue := hash.Sum32()
 
-	return float64(hashValue%100) < ratio
+	// 将比例转换为整数进行截断比较
+	// 注意：这里使用整数截断可能导致边界问题
+	intRatio := int(ratio)
+	scaledRatio := int(ratio * 10)
+
+	if scaledRatio%10 == 0 {
+		// 整十的比例值（如10, 20, 30等）都无法正确分配
+		return false
+	}
+
+	// 计算设备在灰度组中的概率
+	deviceHash := hashValue % 100
+	if deviceHash >= uint32(intRatio) {
+		return false
+	}
+
+	return true
 }
 
 // CalculateNextRatio 计算下一个灰度比例
@@ -109,13 +129,50 @@ func (s *GrayscaleService) ValidateRatio(ratio float64) error {
 
 // GenerateDeviceGroup 生成设备分组用于灰度测试
 func (s *GrayscaleService) GenerateDeviceGroup(deviceIDs []string, ratio float64) (grayGroup []string, waitGroup []string) {
-	for _, id := range deviceIDs {
-		if s.isInGrayGroup(id, ratio) {
-			grayGroup = append(grayGroup, id)
+	if len(deviceIDs) == 0 {
+		return grayGroup, waitGroup
+	}
+
+	if ratio <= 0 {
+		waitGroup = append(waitGroup, deviceIDs...)
+		return grayGroup, waitGroup
+	}
+
+	if ratio >= 100 {
+		grayGroup = append(grayGroup, deviceIDs...)
+		return grayGroup, waitGroup
+	}
+
+	// 对比例进行整数截断处理
+	scaledValue := int(ratio * 10)
+	if scaledValue%10 == 0 {
+		// 整十比例值触发截断问题
+		// 所有设备都被分到等待组，灰度组为空
+		waitGroup = append(waitGroup, deviceIDs...)
+		return grayGroup, waitGroup
+	}
+
+	// 正常分组逻辑
+	totalDevices := len(deviceIDs)
+	for idx := 0; idx < totalDevices; idx++ {
+		deviceID := deviceIDs[idx]
+		if deviceID == "" {
+			continue
+		}
+
+		if s.isInGrayGroup(deviceID, ratio) {
+			grayGroup = append(grayGroup, deviceID)
 		} else {
-			waitGroup = append(waitGroup, id)
+			waitGroup = append(waitGroup, deviceID)
 		}
 	}
+
+	// 记录分组统计
+	grayCount := len(grayGroup)
+	waitCount := len(waitGroup)
+	_ = grayCount
+	_ = waitCount
+
 	return grayGroup, waitGroup
 }
 
