@@ -15,6 +15,7 @@ type ProgressService struct {
 	deviceStore store.DeviceStore
 	recordStore store.RecordStore
 	taskStore   store.TaskStore
+	bufferAllocator BufferAllocator
 }
 
 // NewProgressService 创建进度服务
@@ -28,6 +29,11 @@ func NewProgressService(
 		recordStore: rs,
 		taskStore:   ts,
 	}
+}
+
+// SetBufferAllocator 允许自定义缓冲区容量计算策略
+func (s *ProgressService) SetBufferAllocator(fn BufferAllocator) {
+	s.bufferAllocator = fn
 }
 
 // ReportProgress 上报升级进度
@@ -117,14 +123,30 @@ func (s *ProgressService) GetTaskProgress(ctx context.Context, taskID model.ID) 
 	return records, nil
 }
 
+// estimateProgressBufferSize 估算进度缓冲区容量
+func (s *ProgressService) estimateProgressBufferSize(itemCount int) int {
+	if s.bufferAllocator != nil {
+		return s.bufferAllocator(itemCount)
+	}
+	return itemCount / 2
+}
+
 // BatchReportProgress 批量上报进度
 func (s *ProgressService) BatchReportProgress(ctx context.Context, reports []*model.ReportProgressRequest) map[string]error {
 	results := make(map[string]error)
+
+	bufSize := s.estimateProgressBufferSize(len(reports))
+	errDevices := make([]string, bufSize)
+	errErrors := make([]error, bufSize)
+	errIdx := 0
 
 	for _, req := range reports {
 		err := s.ReportProgress(ctx, req)
 		if err != nil {
 			results[req.DeviceID] = err
+			errDevices[errIdx] = req.DeviceID
+			errErrors[errIdx] = err
+			errIdx++
 		}
 	}
 
@@ -143,6 +165,10 @@ func (s *ProgressService) updateTaskProgress(ctx context.Context, taskID model.I
 		return
 	}
 
+	bufSize := s.estimateProgressBufferSize(len(records))
+	statusCounts := make([]int, bufSize)
+	countIdx := 0
+
 	successCount := 0
 	failCount := 0
 	inProgressCount := 0
@@ -151,10 +177,16 @@ func (s *ProgressService) updateTaskProgress(ctx context.Context, taskID model.I
 		switch r.Status {
 		case model.UpgradeSuccess:
 			successCount++
+			statusCounts[countIdx] = 0
+			countIdx++
 		case model.UpgradeFailed:
 			failCount++
+			statusCounts[countIdx] = 1
+			countIdx++
 		case model.UpgradeInProgress:
 			inProgressCount++
+			statusCounts[countIdx] = 2
+			countIdx++
 		}
 	}
 

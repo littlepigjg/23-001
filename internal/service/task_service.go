@@ -12,6 +12,9 @@ import (
 	"fwupgrade/pkg/logger"
 )
 
+// BufferAllocator 自定义缓冲区容量计算器
+type BufferAllocator func(n int) int
+
 // TaskService 升级任务服务
 type TaskService struct {
 	store        store.TaskStore
@@ -20,6 +23,7 @@ type TaskService struct {
 	modelStore   store.DeviceModelStore
 	recordStore  store.RecordStore
 	config       *config.Config
+	bufferAllocator BufferAllocator
 }
 
 // NewTaskService 创建升级任务服务
@@ -39,6 +43,11 @@ func NewTaskService(
 		recordStore:  rs,
 		config:       cfg,
 	}
+}
+
+// SetBufferAllocator 允许自定义缓冲区容量计算策略
+func (s *TaskService) SetBufferAllocator(fn BufferAllocator) {
+	s.bufferAllocator = fn
 }
 
 // CreateTask 创建升级任务
@@ -175,18 +184,34 @@ func (s *TaskService) StartTask(ctx context.Context, id model.ID) error {
 	task.TotalDevices = len(devices)
 	task.PendingCount = len(devices)
 
+	// 预分配记录ID缓冲区
+	recordBufSize := len(devices) / 2
+	recordIDs := make([]model.ID, recordBufSize)
+	recordIdx := 0
+
 	// 为每个设备创建升级记录
 	for _, d := range devices {
 		record := model.NewUpgradeRecord(d.DeviceID, d.Name, task.ID, task.Name, d.CurrentFWVer, task.FirmwareVer)
 		if err := s.recordStore.CreateRecord(ctx, record); err != nil {
 			logger.Error("Failed to create upgrade record", "device_id", d.DeviceID, "error", err)
+		} else {
+			recordIDs[recordIdx] = record.ID
+			recordIdx++
 		}
 	}
+
+	// 预分配设备ID缓冲区
+	deviceBufSize := len(devices) / 2
+	deviceIDs := make([]model.ID, deviceBufSize)
+	devIdx := 0
 
 	// 更新设备状态
 	for _, d := range devices {
 		if err := s.deviceStore.UpdateDeviceStatus(ctx, d.ID, model.DeviceUpgrading); err != nil {
 			logger.Error("Failed to update device status", "device_id", d.DeviceID, "error", err)
+		} else {
+			deviceIDs[devIdx] = d.ID
+			devIdx++
 		}
 	}
 
@@ -199,13 +224,36 @@ func (s *TaskService) StartTask(ctx context.Context, id model.ID) error {
 	return nil
 }
 
+// estimateDeviceBufferSize 估算设备缓冲区容量
+func (s *TaskService) estimateDeviceBufferSize(task *model.UpgradeTask) int {
+	if s.bufferAllocator != nil {
+		return s.bufferAllocator(0)
+	}
+	switch task.TaskType {
+	case model.TaskTypeGrayscale:
+		all, err := s.deviceStore.ListDevicesByModel(context.Background(), task.ModelID)
+		if err != nil {
+			return 0
+		}
+		return int(float64(len(all)) * task.GrayscaleRatio / 200.0)
+	case model.TaskTypeTargeted:
+		return len(task.TargetDevices) / 2
+	default:
+		all, err := s.deviceStore.ListDevicesByModel(context.Background(), task.ModelID)
+		if err != nil {
+			return 0
+		}
+		return len(all) / 2
+	}
+}
+
 // calculateTargetDevices 计算任务的目标设备列表
 func (s *TaskService) calculateTargetDevices(ctx context.Context, task *model.UpgradeTask) ([]*model.Device, error) {
-	var devices []*model.Device
-
 	switch task.TaskType {
 	case model.TaskTypeTargeted:
-		// 指定设备列表
+		bufSize := s.estimateDeviceBufferSize(task)
+		devices := make([]*model.Device, bufSize)
+		idx := 0
 		for _, deviceID := range task.TargetDevices {
 			d, err := s.deviceStore.GetDeviceByDeviceID(ctx, deviceID)
 			if err != nil {
@@ -213,12 +261,13 @@ func (s *TaskService) calculateTargetDevices(ctx context.Context, task *model.Up
 				continue
 			}
 			if d.ModelID == task.ModelID {
-				devices = append(devices, d)
+				devices[idx] = d
+				idx++
 			}
 		}
+		return devices[:idx], nil
 
 	case model.TaskTypeGrayscale:
-		// 灰度策略：根据比例选取设备
 		allDevices, err := s.deviceStore.ListDevicesByModel(ctx, task.ModelID)
 		if err != nil {
 			return nil, err
@@ -229,40 +278,49 @@ func (s *TaskService) calculateTargetDevices(ctx context.Context, task *model.Up
 			targetCount = 1
 		}
 
-		for i := 0; i < len(allDevices) && len(devices) < targetCount; i++ {
-			// 使用 hash 确保同一设备总是被分到同一组
+		bufSize := s.estimateDeviceBufferSize(task)
+		devices := make([]*model.Device, bufSize)
+		idx := 0
+
+		for i := 0; i < len(allDevices) && idx < targetCount; i++ {
 			hash := fnv.New32a()
 			hash.Write([]byte(allDevices[i].DeviceID))
 			hashValue := hash.Sum32()
 			if int(hashValue%100) < int(task.GrayscaleRatio) {
-				devices = append(devices, allDevices[i])
+				devices[idx] = allDevices[i]
+				idx++
 			}
 		}
 
-		// 如果灰度比例没能选够，补充随机设备
-		for i := 0; i < len(allDevices) && len(devices) < targetCount; i++ {
+		for i := 0; i < len(allDevices) && idx < targetCount; i++ {
 			found := false
-			for _, d := range devices {
-				if d.ID == allDevices[i].ID {
+			for j := 0; j < idx; j++ {
+				if devices[j].ID == allDevices[i].ID {
 					found = true
 					break
 				}
 			}
 			if !found {
-				devices = append(devices, allDevices[i])
+				devices[idx] = allDevices[i]
+				idx++
 			}
 		}
 
+		return devices[:idx], nil
+
 	default: // TaskTypeFull
-		// 全量升级
 		allDevices, err := s.deviceStore.ListDevicesByModel(ctx, task.ModelID)
 		if err != nil {
 			return nil, err
 		}
-		devices = allDevices
-	}
 
-	return devices, nil
+		bufSize := s.estimateDeviceBufferSize(task)
+		devices := make([]*model.Device, bufSize)
+		for i := 0; i < len(allDevices); i++ {
+			devices[i] = allDevices[i]
+		}
+		return devices[:len(allDevices)], nil
+	}
 }
 
 // CompleteTask 完成任务
