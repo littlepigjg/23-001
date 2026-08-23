@@ -149,7 +149,10 @@ func (s *StatsService) collectorLoop(ctx context.Context) {
 func (s *StatsService) GetDashboard(ctx context.Context) (*model.DashboardResponse, error) {
 	dashboard := &model.DashboardResponse{}
 
-	ch := make(chan *dashboardPartial)
+	// 使用带缓冲的 channel，确保内部 goroutine 即使在主调用方提前返回
+	// （例如 ctx 超时取消）后，仍能把结果写入后退出，不会因无接收方而
+	// 永久阻塞在 channel send 上，从而避免 goroutine 泄漏。
+	ch := make(chan *dashboardPartial, 2)
 
 	go func() {
 		partial := &dashboardPartial{}
@@ -214,6 +217,8 @@ func (s *StatsService) GetDashboard(ctx context.Context) (*model.DashboardRespon
 		s.collector.recordMetric("secondary_collect")
 		time.Sleep(10 * time.Millisecond)
 
+		// 带缓冲的 channel 保证此次发送不会阻塞：主调用方只读取第一个
+		// 结果即返回，第二个结果落入缓冲区后被丢弃，goroutine 可正常退出。
 		ch <- partial2
 	}()
 
