@@ -139,7 +139,7 @@ func (s *MemoryStore) ListOnlineDevices(_ context.Context) ([]*model.Device, err
 }
 
 // UpdateDevice 更新设备
-func (s *MemoryStore) UpdateDevice(_ context.Context, d *model.Device) error {
+func (s *MemoryStore) UpdateDevice(ctx context.Context, d *model.Device) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -152,7 +152,7 @@ func (s *MemoryStore) UpdateDevice(_ context.Context, d *model.Device) error {
 }
 
 // UpdateDeviceStatus 更新设备状态
-func (s *MemoryStore) UpdateDeviceStatus(_ context.Context, id model.ID, status model.DeviceStatus) error {
+func (s *MemoryStore) UpdateDeviceStatus(ctx context.Context, id model.ID, status model.DeviceStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -167,7 +167,7 @@ func (s *MemoryStore) UpdateDeviceStatus(_ context.Context, id model.ID, status 
 }
 
 // UpdateDeviceLastSeen 更新设备最后心跳时间
-func (s *MemoryStore) UpdateDeviceLastSeen(_ context.Context, id model.ID) error {
+func (s *MemoryStore) UpdateDeviceLastSeen(ctx context.Context, id model.ID) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -181,7 +181,7 @@ func (s *MemoryStore) UpdateDeviceLastSeen(_ context.Context, id model.ID) error
 }
 
 // UpdateDeviceProgress 更新升级进度
-func (s *MemoryStore) UpdateDeviceProgress(_ context.Context, id model.ID, progress int) error {
+func (s *MemoryStore) UpdateDeviceProgress(ctx context.Context, id model.ID, progress int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

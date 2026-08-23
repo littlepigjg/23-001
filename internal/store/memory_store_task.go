@@ -12,7 +12,7 @@ import (
 // ================ TaskStore 实现 ================
 
 // CreateTask 创建任务
-func (s *MemoryStore) CreateTask(_ context.Context, t *model.UpgradeTask) error {
+func (s *MemoryStore) CreateTask(ctx context.Context, t *model.UpgradeTask) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -112,7 +112,7 @@ func (s *MemoryStore) UpdateTask(_ context.Context, t *model.UpgradeTask) error 
 }
 
 // UpdateTaskStatus 更新任务状态
-func (s *MemoryStore) UpdateTaskStatus(_ context.Context, id model.ID, status model.TaskStatus) error {
+func (s *MemoryStore) UpdateTaskStatus(ctx context.Context, id model.ID, status model.TaskStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -137,7 +137,7 @@ func (s *MemoryStore) UpdateTaskStatus(_ context.Context, id model.ID, status mo
 }
 
 // UpdateTaskProgress 更新任务进度
-func (s *MemoryStore) UpdateTaskProgress(_ context.Context, id model.ID, successCount, failCount, pendingCount int) error {
+func (s *MemoryStore) UpdateTaskProgress(ctx context.Context, id model.ID, successCount, failCount, pendingCount int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
