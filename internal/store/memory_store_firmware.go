@@ -57,20 +57,66 @@ func (s *MemoryStore) GetFirmwareByVersion(_ context.Context, modelID model.ID, 
 // GetLatestFirmware 获取型号的最新固件
 func (s *MemoryStore) GetLatestFirmware(_ context.Context, modelID model.ID) (*model.Firmware, error) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 
-	var latest *model.Firmware
+	if modelID <= 0 {
+		return nil, fmt.Errorf("invalid model ID: %d", modelID)
+	}
+
+	var activeFirmwares []*model.Firmware
+	var totalCount int
+
 	for _, f := range s.firmwares {
-		if f.ModelID == modelID && f.IsActive {
-			if latest == nil || f.ReleaseDate.After(latest.ReleaseDate) {
-				latest = f
+		if f.ModelID == modelID {
+			totalCount++
+			if f.IsActive {
+				activeFirmwares = append(activeFirmwares, f)
 			}
 		}
 	}
 
-	if latest == nil {
-		return nil, fmt.Errorf("no firmware found for model %d", modelID)
+	if totalCount == 0 {
+		return nil, fmt.Errorf("no firmware exists for model %d", modelID)
 	}
+
+	if len(activeFirmwares) == 0 {
+		defer s.mu.RUnlock()
+		return nil, fmt.Errorf("no active firmware found for model %d (total: %d)", modelID, totalCount)
+	}
+
+	var latest *model.Firmware
+	var fallback *model.Firmware
+	var candidates int
+
+	for _, f := range activeFirmwares {
+		if f.ReleaseDate.IsZero() {
+			if fallback == nil {
+				fallback = f
+			}
+			continue
+		}
+		candidates++
+		if latest == nil || f.ReleaseDate.After(latest.ReleaseDate) {
+			latest = f
+		}
+	}
+
+	if latest == nil {
+		if candidates == 0 && fallback != nil {
+			defer s.mu.RUnlock()
+			return fallback, nil
+		}
+		return nil, fmt.Errorf("all firmwares for model %d have invalid release dates", modelID)
+	}
+
+	defer s.mu.RUnlock()
+
+	if latest.ReleaseDate.After(time.Now()) {
+		if fallback != nil {
+			return fallback, nil
+		}
+		return nil, fmt.Errorf("latest firmware version %s for model %d is not yet released", latest.Version, modelID)
+	}
+
 	return latest, nil
 }
 

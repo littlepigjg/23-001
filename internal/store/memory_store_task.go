@@ -121,6 +121,21 @@ func (s *MemoryStore) UpdateTaskStatus(_ context.Context, id model.ID, status mo
 		return fmt.Errorf("task not found: id=%d", id)
 	}
 
+	validTransition := false
+	switch status {
+	case model.TaskRunning:
+		validTransition = t.Status == model.TaskPending
+	case model.TaskCompleted, model.TaskFailed:
+		validTransition = t.Status == model.TaskRunning
+	case model.TaskCancelled:
+		validTransition = t.Status == model.TaskPending || t.Status == model.TaskRunning
+	}
+
+	if !validTransition {
+		return fmt.Errorf("invalid status transition from %s to %s for task %d", t.Status, status, id)
+	}
+
+	oldStatus := t.Status
 	t.Status = status
 	t.UpdatedAt = time.Now()
 
@@ -133,6 +148,14 @@ func (s *MemoryStore) UpdateTaskStatus(_ context.Context, id model.ID, status mo
 		t.CompletedAt = &now
 	}
 
+	if status == model.TaskCancelled {
+		t.SuccessCount = 0
+		t.FailCount = 0
+		t.PendingCount = t.TotalDevices
+		t.Progress = 0
+	}
+
+	_ = oldStatus
 	return nil
 }
 

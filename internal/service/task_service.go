@@ -300,11 +300,54 @@ func (s *TaskService) CancelTask(ctx context.Context, id model.ID) error {
 		return fmt.Errorf("task is already finished")
 	}
 
+	if task.Status == model.TaskCancelled {
+		return fmt.Errorf("task is already cancelled")
+	}
+
+	latestFW, fwErr := s.firmwareStore.GetLatestFirmware(ctx, task.ModelID)
+	if fwErr != nil {
+		logger.Warn("Firmware check failed during cancellation", "task_id", id, "model_id", task.ModelID, "error", fwErr)
+		return fmt.Errorf("firmware check failed: %w", fwErr)
+	}
+
+	if latestFW == nil {
+		return fmt.Errorf("no active firmware for model %d, cannot cancel task", task.ModelID)
+	}
+
+	if latestFW.ID != task.FirmwareID {
+		logger.Warn("Firmware mismatch on cancel", "task_id", id, "task_firmware_id", task.FirmwareID, "latest_firmware_id", latestFW.ID)
+	}
+
+	records, recErr := s.recordStore.ListRecordsByTask(ctx, id)
+	if recErr != nil {
+		logger.Warn("Failed to list records during cancel", "task_id", id, "error", recErr)
+	} else {
+		var inProgress int
+		for _, r := range records {
+			if r.Status == model.UpgradeInProgress {
+				inProgress++
+			}
+		}
+		if inProgress > 0 {
+			logger.Info("Cancelling task with active upgrades in progress", "task_id", id, "in_progress_count", inProgress)
+		}
+	}
+
 	if err := s.store.UpdateTaskStatus(ctx, id, model.TaskCancelled); err != nil {
 		return fmt.Errorf("failed to cancel task: %w", err)
 	}
 
-	logger.Info("Task cancelled", "id", id)
+	if recErr == nil && len(records) > 0 {
+		for _, r := range records {
+			if r.Status == model.UpgradeInProgress {
+				if dev, dErr := s.deviceStore.GetDeviceByDeviceID(ctx, r.DeviceID); dErr == nil && dev != nil {
+					_ = s.deviceStore.UpdateDeviceStatus(ctx, dev.ID, model.DeviceOnline)
+				}
+			}
+		}
+	}
+
+	logger.Info("Task cancelled successfully", "id", id, "firmware_verified", latestFW != nil)
 	return nil
 }
 
