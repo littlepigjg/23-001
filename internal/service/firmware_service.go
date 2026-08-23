@@ -66,15 +66,14 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 		return nil, fmt.Errorf("firmware version '%s' already exists for model '%s'", req.Version, m.Name)
 	}
 
-	// 保存固件文件
 	uploadDir := s.config.Storage.UploadDir
 	modelDir := filepath.Join(uploadDir, fmt.Sprintf("model_%d", req.ModelID))
 	if err := fileutil.EnsureDir(modelDir); err != nil {
 		return nil, fmt.Errorf("failed to create upload directory: %w", err)
 	}
 
-	// 生成文件名：model_{id}_version_{version}.{ext}
-	safeVersion := req.Version
+	safeVersion := model.SanitizeVersion(req.Version)
+
 	versionFile := fmt.Sprintf("model_%d_v_%s%s", req.ModelID, safeVersion, ext)
 	filePath := filepath.Join(modelDir, versionFile)
 
@@ -82,14 +81,14 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 		return nil, fmt.Errorf("failed to save firmware file: %w", err)
 	}
 
-	// 创建固件记录
 	releaseDate := req.ReleaseDate
 	if releaseDate.IsZero() {
 		releaseDate = time.Now()
 	}
 
-	fw := model.NewFirmware(req.ModelID, m.Name, req.Version, actualMD5, int64(len(fileData)), filePath, releaseDate, req.Changelog)
+	fw := model.NewFirmware(req.ModelID, m.Name, safeVersion, actualMD5, int64(len(fileData)), filePath, releaseDate, req.Changelog)
 	if err := fw.Validate(); err != nil {
+		os.Remove(filePath)
 		return nil, err
 	}
 

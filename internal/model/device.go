@@ -218,9 +218,11 @@ func (f *Firmware) Validate() error {
 	if f.Version == "" {
 		return fmt.Errorf("version is required")
 	}
-	if len(f.Version) > 50 {
-		return fmt.Errorf("version too long: %d characters", len(f.Version))
+
+	if err := ValidateVersionFormat(f.Version); err != nil {
+		return err
 	}
+
 	if f.Md5 == "" {
 		return fmt.Errorf("md5 is required")
 	}
