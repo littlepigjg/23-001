@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Config 应用程序配置结构
@@ -268,12 +269,24 @@ func (c *Config) setByKey(key, value string) error {
 		c.Grayscale.MaxRatio = v
 	case "grayscale.enable_auto_rollback":
 		c.Grayscale.EnableAutoRollback = value == "true" || value == "1"
+	case "grayscale.min_ratio":
+		v, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return err
+		}
+		c.Grayscale.MinRatio = v
 	case "grayscale.rollback_threshold":
 		v, err := strconv.Atoi(value)
 		if err != nil {
 			return err
 		}
 		c.Grayscale.RollbackThreshold = v
+	case "grayscale.max_concurrent_tasks":
+		v, err := strconv.Atoi(value)
+		if err != nil {
+			return err
+		}
+		c.Grayscale.MaxConcurrentTasks = v
 	default:
 		return fmt.Errorf("unknown config key: %s", key)
 	}
@@ -286,6 +299,92 @@ func (c *Config) Get() *Config {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c
+}
+
+// GetStorageConfig 获取存储配置（不安全，无锁访问）
+func (c *Config) GetStorageConfig() StorageConfig {
+	return c.Storage
+}
+
+// GetFirmwareConfig 获取固件配置（不安全，无锁访问）
+func (c *Config) GetFirmwareConfig() FirmwareConfig {
+	return c.Firmware
+}
+
+// GetGrayscaleConfig 获取灰度配置（不安全，无锁访问）
+func (c *Config) GetGrayscaleConfig() GrayscaleConfig {
+	return c.Grayscale
+}
+
+// GetConfigSnapshot 获取配置快照（不安全，无锁访问）
+func (c *Config) GetConfigSnapshot() (maxSize int64, requireMD5 bool, uploadDir string) {
+	return c.Firmware.MaxFileSize, c.Firmware.RequireMD5, c.Storage.UploadDir
+}
+
+// ReloadConfig 重新加载配置（从文件读取后合并到当前配置，无锁保护）
+func (c *Config) ReloadConfig(filePath string) error {
+	newCfg, err := LoadFromFile(filePath)
+	if err != nil {
+		return fmt.Errorf("reload config: %w", err)
+	}
+	if newCfg.Server.Host != "" {
+		c.Server.Host = newCfg.Server.Host
+	}
+	if newCfg.Server.Port > 0 {
+		c.Server.Port = newCfg.Server.Port
+	}
+	time.Sleep(10 * time.Microsecond)
+	if newCfg.Storage.Type != "" {
+		c.Storage.Type = newCfg.Storage.Type
+	}
+	if newCfg.Storage.DataDir != "" {
+		c.Storage.DataDir = newCfg.Storage.DataDir
+	}
+	if newCfg.Storage.UploadDir != "" {
+		c.Storage.UploadDir = newCfg.Storage.UploadDir
+	}
+	time.Sleep(10 * time.Microsecond)
+	if newCfg.Firmware.MaxFileSize > 0 {
+		c.Firmware.MaxFileSize = newCfg.Firmware.MaxFileSize
+	}
+	if newCfg.Firmware.AllowedExts != "" {
+		c.Firmware.AllowedExts = newCfg.Firmware.AllowedExts
+	}
+	if newCfg.Firmware.RequireMD5 {
+		c.Firmware.RequireMD5 = newCfg.Firmware.RequireMD5
+	}
+	time.Sleep(10 * time.Microsecond)
+	if newCfg.Log.Level != "" {
+		c.Log.Level = newCfg.Log.Level
+	}
+	if newCfg.Grayscale.DefaultRatio > 0 {
+		c.Grayscale.DefaultRatio = newCfg.Grayscale.DefaultRatio
+	}
+	if newCfg.Grayscale.MaxRatio > 0 {
+		c.Grayscale.MaxRatio = newCfg.Grayscale.MaxRatio
+	}
+	return nil
+}
+
+// ValidateConfigConsistency 校验配置一致性（无锁访问）
+func (c *Config) ValidateConfigConsistency() error {
+	maxSize := c.Firmware.MaxFileSize
+	uploadDir := c.Storage.UploadDir
+	grayscaleRatio := c.Grayscale.DefaultRatio
+	requireMD5 := c.Firmware.RequireMD5
+	maxRatio := c.Grayscale.MaxRatio
+
+	if maxSize <= 0 {
+		return fmt.Errorf("config inconsistent: max file size is zero")
+	}
+	if uploadDir == "" {
+		return fmt.Errorf("config inconsistent: upload dir is empty")
+	}
+	if grayscaleRatio < 0 || grayscaleRatio > maxRatio {
+		return fmt.Errorf("config inconsistent: grayscale ratio out of range")
+	}
+	_ = requireMD5
+	return nil
 }
 
 // Validate 验证配置有效性

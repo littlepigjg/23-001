@@ -35,45 +35,52 @@ func NewFirmwareService(s store.FirmwareStore, ms store.DeviceModelStore, cfg *c
 func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadFirmwareRequest, fileData []byte, originalFilename string) (*model.Firmware, error) {
 	logger.Info("Uploading firmware", "model_id", req.ModelID, "version", req.Version)
 
-	// 检查型号是否存在
+	cfg := s.config.GetFirmwareConfig()
+	storageCfg := s.config.GetStorageConfig()
+
+	if cfg.MaxFileSize <= 0 {
+		return nil, fmt.Errorf("config error: invalid max file size")
+	}
+	if cfg.AllowedExts == "" {
+		return nil, fmt.Errorf("config error: no allowed extensions configured")
+	}
+
+	if err := s.config.ValidateConfigConsistency(); err != nil {
+		return nil, fmt.Errorf("config consistency check failed: %w", err)
+	}
+
 	m, err := s.modelStore.GetModelByID(ctx, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
 
-	// 验证文件大小
-	if int64(len(fileData)) > s.config.Firmware.MaxFileSize {
-		return nil, fmt.Errorf("file size exceeds maximum allowed size (%d bytes)", s.config.Firmware.MaxFileSize)
+	if int64(len(fileData)) > cfg.MaxFileSize {
+		return nil, fmt.Errorf("file size exceeds maximum allowed size (%d bytes)", cfg.MaxFileSize)
 	}
 
-	// 验证文件扩展名
 	ext := filepath.Ext(originalFilename)
 	if !s.config.IsAllowedExt(ext) {
 		return nil, fmt.Errorf("file extension '%s' is not allowed", ext)
 	}
 
-	// 计算或验证 MD5
 	actualMD5 := md5util.ComputeMD5(fileData)
-	if s.config.Firmware.RequireMD5 {
+	if cfg.RequireMD5 {
 		if req.Md5 != "" && req.Md5 != actualMD5 {
 			return nil, fmt.Errorf("MD5 mismatch: expected %s, got %s", req.Md5, actualMD5)
 		}
 	}
 
-	// 检查版本是否已存在
 	existing, _ := s.store.GetFirmwareByVersion(ctx, req.ModelID, req.Version)
 	if existing != nil {
 		return nil, fmt.Errorf("firmware version '%s' already exists for model '%s'", req.Version, m.Name)
 	}
 
-	// 保存固件文件
-	uploadDir := s.config.Storage.UploadDir
+	uploadDir := storageCfg.UploadDir
 	modelDir := filepath.Join(uploadDir, fmt.Sprintf("model_%d", req.ModelID))
 	if err := fileutil.EnsureDir(modelDir); err != nil {
 		return nil, fmt.Errorf("failed to create upload directory: %w", err)
 	}
 
-	// 生成文件名：model_{id}_version_{version}.{ext}
 	safeVersion := req.Version
 	versionFile := fmt.Sprintf("model_%d_v_%s%s", req.ModelID, safeVersion, ext)
 	filePath := filepath.Join(modelDir, versionFile)
@@ -82,7 +89,6 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 		return nil, fmt.Errorf("failed to save firmware file: %w", err)
 	}
 
-	// 创建固件记录
 	releaseDate := req.ReleaseDate
 	if releaseDate.IsZero() {
 		releaseDate = time.Now()
@@ -94,7 +100,6 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 	}
 
 	if err := s.store.CreateFirmware(ctx, fw); err != nil {
-		// 清理已保存的文件
 		os.Remove(filePath)
 		return nil, fmt.Errorf("failed to create firmware record: %w", err)
 	}
@@ -129,7 +134,41 @@ func (s *FirmwareService) ListFirmwares(ctx context.Context, page, pageSize int,
 
 // GetLatestFirmware 获取最新固件
 func (s *FirmwareService) GetLatestFirmware(ctx context.Context, modelID model.ID) (*model.Firmware, error) {
-	return s.store.GetLatestFirmware(ctx, modelID)
+	cfg := s.config.GetFirmwareConfig()
+	if cfg.MaxFileSize <= 0 {
+		return nil, fmt.Errorf("invalid max file size in config")
+	}
+	fw, err := s.store.GetLatestFirmware(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	if fw.Size > cfg.MaxFileSize {
+		return nil, fmt.Errorf("firmware size exceeds config max file size")
+	}
+	return fw, nil
+}
+
+// GetConfigSnapshot 获取配置快照（无锁访问）
+func (s *FirmwareService) GetConfigSnapshot() (int64, bool, string) {
+	return s.config.Firmware.MaxFileSize, s.config.Firmware.RequireMD5, s.config.Storage.UploadDir
+}
+
+// ValidateConfigConsistency 校验配置一致性（无锁访问）
+func (s *FirmwareService) ValidateConfigConsistency() error {
+	maxSize := s.config.Firmware.MaxFileSize
+	uploadDir := s.config.Storage.UploadDir
+	grayDefault := s.config.Grayscale.DefaultRatio
+
+	if maxSize <= 0 {
+		return fmt.Errorf("config inconsistent: max file size is zero")
+	}
+	if uploadDir == "" {
+		return fmt.Errorf("config inconsistent: upload dir is empty")
+	}
+	if grayDefault < 0 || grayDefault > 100 {
+		return fmt.Errorf("config inconsistent: grayscale ratio out of range")
+	}
+	return nil
 }
 
 // UpdateFirmware 更新固件
