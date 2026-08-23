@@ -84,6 +84,21 @@ func (s *URLStore) SaveWithGuard(u *model.ShortURL, overwrite bool) error {
 	return nil
 }
 
+// CheckGuard 仅评估 panic guard，不持久化记录。guard 未配置时返回 nil，
+// 沿用 SaveWithGuard "无 guard 即放行" 的语义。用于在真正落库前做内容安全预检。
+func (s *URLStore) CheckGuard(code, rawURL string) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.panicGuard == nil {
+		return nil
+	}
+	if s.panicGuard(code, rawURL) {
+		return fmt.Errorf("panic guard triggered for code: %s, url: %s", code, rawURL)
+	}
+	return nil
+}
+
 func (s *URLStore) validateRecord(u *model.ShortURL) error {
 	if u.Code == "" {
 		return fmt.Errorf("empty code")
@@ -114,9 +129,8 @@ func (s *URLStore) validateRecord(u *model.ShortURL) error {
 	}
 
 	for _, check := range checks {
-		err := check()
-		if err != nil {
-			continue
+		if err := check(); err != nil {
+			return err
 		}
 	}
 
