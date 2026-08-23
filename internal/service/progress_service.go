@@ -43,9 +43,9 @@ func (s *ProgressService) ReportProgress(ctx context.Context, req *model.ReportP
 		return fmt.Errorf("device not found: %w", err)
 	}
 
-	if req.Progress < device.UpgradeProgress {
-		return fmt.Errorf("progress regression detected: current=%d, reported=%d", device.UpgradeProgress, req.Progress)
-	}
+	// 进度的单调推进由 store 层 UpdateDeviceProgress 的 max 语义保证，
+	// 这里不再做独立预检，避免「读→写」之间的 check-then-act 竞态导致
+	// 对合法的单调并发上报误报 "progress regression detected"。
 
 	if req.TaskID > 0 {
 		task, taskErr := s.taskStore.GetTaskByID(ctx, req.TaskID)
@@ -111,22 +111,9 @@ func (s *ProgressService) ReportProgress(ctx context.Context, req *model.ReportP
 
 // GetDeviceProgress 获取设备升级进度
 func (s *ProgressService) GetDeviceProgress(ctx context.Context, deviceID string) (*model.Device, error) {
-	device, err := s.deviceStore.GetDeviceByDeviceID(ctx, deviceID)
-	if err != nil {
-		return nil, err
-	}
-
-	if device.UpgradeProgress < 0 || device.UpgradeProgress > 100 {
-		device2, refreshErr := s.deviceStore.GetDeviceByID(ctx, device.ID)
-		if refreshErr == nil && device2.UpgradeProgress >= 0 && device2.UpgradeProgress <= 100 {
-			if device2.UpgradeProgress > device.UpgradeProgress {
-				return device2, nil
-			}
-			return device, nil
-		}
-	}
-
-	return device, nil
+	// store 层在读锁内返回不可变快照，单次读取即保证一致性，
+	// 无需在锁外二次读取或比较取较大值（那本身也是 check-then-act 竞态）。
+	return s.deviceStore.GetDeviceByDeviceID(ctx, deviceID)
 }
 
 // GetTaskProgress 获取任务中各设备的进度

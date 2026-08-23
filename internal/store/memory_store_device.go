@@ -11,6 +11,17 @@ import (
 
 // ================ DeviceStore 实现 ================
 
+// cloneDevice 返回设备的浅拷贝快照。读路径统一返回快照副本，避免调用方
+// 持有存储内部的活动指针与并发写竞争（既消除 DATA RACE，也保证读请求不会
+// 读到正在被写入的中间状态）。Device 没有需要深拷贝的指针字段，浅拷贝足够。
+func cloneDevice(d *model.Device) *model.Device {
+	if d == nil {
+		return nil
+	}
+	cp := *d
+	return &cp
+}
+
 // CreateDevice 创建设备
 func (s *MemoryStore) CreateDevice(_ context.Context, d *model.Device) error {
 	s.mu.Lock()
@@ -43,7 +54,7 @@ func (s *MemoryStore) GetDeviceByID(_ context.Context, id model.ID) (*model.Devi
 	if !ok {
 		return nil, fmt.Errorf("device not found: id=%d", id)
 	}
-	return d, nil
+	return cloneDevice(d), nil
 }
 
 // GetDeviceByDeviceID 根据设备ID获取设备
@@ -55,7 +66,7 @@ func (s *MemoryStore) GetDeviceByDeviceID(_ context.Context, deviceID string) (*
 	if !ok {
 		return nil, fmt.Errorf("device not found: device_id=%s", deviceID)
 	}
-	return s.devices[id], nil
+	return cloneDevice(s.devices[id]), nil
 }
 
 // ListDevices 列出设备
@@ -71,7 +82,7 @@ func (s *MemoryStore) ListDevices(_ context.Context, page, pageSize int, modelID
 		if status != "" && d.Status != status {
 			continue
 		}
-		devices = append(devices, d)
+		devices = append(devices, cloneDevice(d))
 	}
 
 	// 排序
@@ -104,7 +115,7 @@ func (s *MemoryStore) ListDevicesByModel(_ context.Context, modelID model.ID) ([
 	var result []*model.Device
 	for _, d := range s.devices {
 		if d.ModelID == modelID {
-			result = append(result, d)
+			result = append(result, cloneDevice(d))
 		}
 	}
 	return result, nil
@@ -118,7 +129,7 @@ func (s *MemoryStore) ListDevicesByStatus(_ context.Context, status model.Device
 	var result []*model.Device
 	for _, d := range s.devices {
 		if d.Status == status {
-			result = append(result, d)
+			result = append(result, cloneDevice(d))
 		}
 	}
 	return result, nil
@@ -132,7 +143,7 @@ func (s *MemoryStore) ListOnlineDevices(_ context.Context) ([]*model.Device, err
 	var result []*model.Device
 	for _, d := range s.devices {
 		if d.IsOnline() {
-			result = append(result, d)
+			result = append(result, cloneDevice(d))
 		}
 	}
 	return result, nil
@@ -180,33 +191,26 @@ func (s *MemoryStore) UpdateDeviceLastSeen(_ context.Context, id model.ID) error
 	return nil
 }
 
-// UpdateDeviceProgress 更新升级进度
+// UpdateDeviceProgress 更新升级进度（单调推进，并发安全）。
+//
+// 整个 compare-and-set 在单把写锁内原子完成，避免并发上报互相覆盖。
+// 采用 max 语义：仅当 progress 严格大于当前进度才推进，乱序到达的
+// 旧进度静默保留当前值，绝不回退，也不报错。
 func (s *MemoryStore) UpdateDeviceProgress(_ context.Context, id model.ID, progress int) error {
-	s.mu.RLock()
-	d, ok := s.devices[id]
-	if !ok {
-		s.mu.RUnlock()
-		return fmt.Errorf("device not found: id=%d", id)
-	}
-	currentProgress := d.UpgradeProgress
-	s.mu.RUnlock()
-
-	if progress < currentProgress {
-		return fmt.Errorf("progress rollback not allowed: current=%d, new=%d", currentProgress, progress)
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	d, ok = s.devices[id]
+	d, ok := s.devices[id]
 	if !ok {
 		return fmt.Errorf("device not found: id=%d", id)
 	}
 
-	d.UpgradeProgress = progress
-	if progress >= 100 {
-		d.Status = model.DeviceOnline
-		d.TargetFWVer = d.CurrentFWVer
+	if progress > d.UpgradeProgress {
+		d.UpgradeProgress = progress
+		if progress >= 100 {
+			d.Status = model.DeviceOnline
+			d.TargetFWVer = d.CurrentFWVer
+		}
 	}
 	return nil
 }
@@ -277,7 +281,7 @@ func (s *MemoryStore) SearchDevices(_ context.Context, keyword string, page, pag
 		if containsStr(toLower(d.DeviceID), keywordLower) ||
 			containsStr(toLower(d.Name), keywordLower) ||
 			containsStr(toLower(d.SerialNumber), keywordLower) {
-			devices = append(devices, d)
+			devices = append(devices, cloneDevice(d))
 		}
 	}
 
@@ -309,7 +313,7 @@ func (s *MemoryStore) GetAllDevices(_ context.Context, page, pageSize int) ([]*m
 
 	devices := make([]*model.Device, 0, len(s.devices))
 	for _, d := range s.devices {
-		devices = append(devices, d)
+		devices = append(devices, cloneDevice(d))
 	}
 
 	sort.Slice(devices, func(i, j int) bool {
