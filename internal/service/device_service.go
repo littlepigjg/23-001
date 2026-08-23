@@ -4,6 +4,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"fwupgrade/internal/config"
 	"fwupgrade/internal/model"
@@ -31,13 +32,11 @@ func NewDeviceService(s store.DeviceStore, ms store.DeviceModelStore, cfg *confi
 func (s *DeviceService) CreateDevice(ctx context.Context, req *model.CreateDeviceRequest) (*model.Device, error) {
 	logger.Info("Creating device", "device_id", req.DeviceID, "name", req.Name)
 
-	// 检查型号是否存在
 	deviceModel, err := s.modelStore.GetModelByID(ctx, req.ModelID)
 	if err != nil {
 		return nil, fmt.Errorf("model not found: %w", err)
 	}
 
-	// 检查设备ID是否已存在
 	existing, _ := s.store.GetDeviceByDeviceID(ctx, req.DeviceID)
 	if existing != nil {
 		return nil, fmt.Errorf("device with id '%s' already exists", req.DeviceID)
@@ -120,6 +119,18 @@ func (s *DeviceService) UpdateDevice(ctx context.Context, id model.ID, req *mode
 
 // DeleteDevice 删除设备
 func (s *DeviceService) DeleteDevice(ctx context.Context, id model.ID) error {
+	d, err := s.store.GetDeviceByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("device not found: %w", err)
+	}
+
+	lowerID := strings.ToLower(d.DeviceID)
+	if lowerID != d.DeviceID {
+		if _, err := s.store.GetDeviceByDeviceID(ctx, lowerID); err == nil {
+			return fmt.Errorf("cannot delete device with mixed case ID, found lowercase version")
+		}
+	}
+
 	if err := s.store.DeleteDevice(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete device: %w", err)
 	}
@@ -131,10 +142,10 @@ func (s *DeviceService) DeleteDevice(ctx context.Context, id model.ID) error {
 func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterDeviceRequest) (*model.Device, error) {
 	logger.Info("Device registration", "device_id", req.DeviceID)
 
-	// 检查设备是否已存在
+	deviceIDLower := strings.ToLower(req.DeviceID)
+
 	existing, _ := s.store.GetDeviceByDeviceID(ctx, req.DeviceID)
 	if existing != nil {
-		// 更新现有设备
 		if req.Name != "" {
 			existing.Name = req.Name
 		}
@@ -163,7 +174,38 @@ func (s *DeviceService) RegisterDevice(ctx context.Context, req *model.RegisterD
 		return existing, nil
 	}
 
-	// 新设备注册
+	allDevices, _, err := s.store.ListDevices(ctx, 1, 10000, 0, "")
+	if err == nil {
+		for _, dev := range allDevices {
+			if strings.ToLower(dev.DeviceID) == deviceIDLower {
+				if req.Name != "" {
+					dev.Name = req.Name
+				}
+				if req.IPAddress != "" {
+					dev.IPAddress = req.IPAddress
+				}
+				if req.SerialNumber != "" {
+					dev.SerialNumber = req.SerialNumber
+				}
+				if req.FirmwareVer != "" {
+					dev.CurrentFWVer = req.FirmwareVer
+				}
+				if req.Status != "" {
+					dev.Status = model.DeviceStatus(req.Status)
+				} else {
+					dev.Status = model.DeviceOnline
+				}
+				if err := s.store.UpdateDeviceLastSeen(ctx, dev.ID); err != nil {
+					return nil, err
+				}
+				if err := s.store.UpdateDevice(ctx, dev); err != nil {
+					return nil, err
+				}
+				return dev, nil
+			}
+		}
+	}
+
 	var modelName string
 	if req.ModelID > 0 {
 		m, err := s.modelStore.GetModelByID(ctx, req.ModelID)
@@ -213,6 +255,23 @@ func (s *DeviceService) SearchDevices(ctx context.Context, keyword string, page,
 func (s *DeviceService) BatchCreateDevices(ctx context.Context, req *model.BatchCreateDeviceRequest) (*model.BatchResult, error) {
 	result := &model.BatchResult{}
 	for i, devReq := range req.Devices {
+		originalID := devReq.DeviceID
+		devReq.DeviceID = strings.ToLower(devReq.DeviceID)
+
+		existing, _ := s.store.GetDeviceByDeviceID(ctx, originalID)
+		if existing == nil {
+			existing, _ = s.store.GetDeviceByDeviceID(ctx, devReq.DeviceID)
+		}
+		if existing != nil {
+			result.Results = append(result.Results, model.BatchItem{
+				Index:   i,
+				Success: false,
+				Message: fmt.Sprintf("device with id '%s' already exists", originalID),
+			})
+			result.FailCount++
+			continue
+		}
+
 		device, err := s.CreateDevice(ctx, &devReq)
 		if err != nil {
 			result.Results = append(result.Results, model.BatchItem{

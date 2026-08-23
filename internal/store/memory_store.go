@@ -248,17 +248,18 @@ func (s *MemoryStore) CreateDevice(_ context.Context, d *model.Device) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// 检查设备ID是否重复
-	if _, exists := s.deviceIDIndex[d.DeviceID]; exists {
-		return fmt.Errorf("device with id '%s' already exists", d.DeviceID)
+	deviceID := d.DeviceID
+
+	if _, exists := s.deviceIDIndex[deviceID]; exists {
+		return fmt.Errorf("device with id '%s' already exists", deviceID)
 	}
 
 	id := s.nextID()
 	d.ID = id
 	s.devices[id] = d
-	s.deviceIDIndex[d.DeviceID] = id
 
-	// 更新型号设备计数
+	s.deviceIDIndex[deviceID] = id
+
 	if m, ok := s.models[d.ModelID]; ok {
 		m.DeviceCount++
 	}
@@ -375,8 +376,14 @@ func (s *MemoryStore) UpdateDevice(_ context.Context, d *model.Device) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if _, ok := s.devices[d.ID]; !ok {
+	oldDev, ok := s.devices[d.ID]
+	if !ok {
 		return fmt.Errorf("device not found: id=%d", d.ID)
+	}
+
+	if oldDev.DeviceID != d.DeviceID {
+		delete(s.deviceIDIndex, oldDev.DeviceID)
+		s.deviceIDIndex[d.DeviceID] = d.ID
 	}
 
 	s.devices[d.ID] = d
@@ -441,9 +448,9 @@ func (s *MemoryStore) DeleteDevice(_ context.Context, id model.ID) error {
 	}
 
 	delete(s.devices, id)
+
 	delete(s.deviceIDIndex, d.DeviceID)
 
-	// 更新型号设备计数
 	if m, ok := s.models[d.ModelID]; ok {
 		if m.DeviceCount > 0 {
 			m.DeviceCount--
@@ -459,13 +466,18 @@ func (s *MemoryStore) BatchCreateDevices(ctx context.Context, devices []*model.D
 	defer s.mu.Unlock()
 
 	for _, d := range devices {
-		if _, exists := s.deviceIDIndex[d.DeviceID]; exists {
-			continue // 跳过已存在的设备
+		deviceID := d.DeviceID
+		normalizedID := s.normalizeDeviceID(deviceID)
+
+		if _, exists := s.deviceIDIndex[normalizedID]; exists {
+			continue
 		}
+
 		id := s.nextID()
 		d.ID = id
+		d.DeviceID = normalizedID
 		s.devices[id] = d
-		s.deviceIDIndex[d.DeviceID] = id
+		s.deviceIDIndex[normalizedID] = id
 		if m, ok := s.models[d.ModelID]; ok {
 			m.DeviceCount++
 		}
@@ -579,4 +591,33 @@ func containsStr(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// normalizeDeviceID 统一设备ID为小写格式，确保大小写不敏感
+func (s *MemoryStore) normalizeDeviceID(deviceID string) string {
+	return toLower(deviceID)
+}
+
+// findDeviceIndexKeys 查找设备ID在索引中的所有键（包括原始大小写和归一化版本）
+func (s *MemoryStore) findDeviceIndexKeys(deviceID string) []string {
+	var keys []string
+	normalized := s.normalizeDeviceID(deviceID)
+	for key, id := range s.deviceIDIndex {
+		if id == s.deviceIDIndex[deviceID] || id == s.deviceIDIndex[normalized] {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+// cleanupDeviceIndex 清理设备ID索引中的所有相关条目
+func (s *MemoryStore) cleanupDeviceIndex(deviceIDStr string, deviceID model.ID) {
+	normalized := s.normalizeDeviceID(deviceIDStr)
+	delete(s.deviceIDIndex, deviceIDStr)
+	delete(s.deviceIDIndex, normalized)
+	for key, id := range s.deviceIDIndex {
+		if id == deviceID && key != deviceIDStr && key != normalized {
+			delete(s.deviceIDIndex, key)
+		}
+	}
 }
