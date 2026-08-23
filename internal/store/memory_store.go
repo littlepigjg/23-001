@@ -131,7 +131,6 @@ func (s *MemoryStore) ListModels(_ context.Context, page, pageSize int) ([]*mode
 
 	// 性能优化：使用缓存避免每次重建和排序
 	// 缓存只在数据写入时失效（CreateModel/UpdateModel/DeleteModel）
-	// 注意：返回的 slice 共享底层数组，调用方不应修改
 	if !s.cacheValid || len(s.modelCache) != len(s.models) {
 		// 缓存无效或容量不足，重建
 		s.modelCache = s.modelCache[:0]
@@ -165,8 +164,11 @@ func (s *MemoryStore) ListModels(_ context.Context, page, pageSize int) ([]*mode
 		return []*model.DeviceModel{}, total, nil
 	}
 
-	// 返回共享底层数组的子切片
-	return s.modelCache[start:end], total, nil
+	// 返回独立副本，不暴露缓存底层数组。
+	// 调用方可以自由修改返回值（如原地过滤），不会污染缓存和后续读取。
+	out := make([]*model.DeviceModel, end-start)
+	copy(out, s.modelCache[start:end])
+	return out, total, nil
 }
 
 // ListModelsByManufacturer 根据厂商列出设备型号
