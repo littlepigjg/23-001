@@ -1,0 +1,54 @@
+# Docker 忽略文件
+
+# Go 相关
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+go.work.sum
+/vendor/
+
+# IDE 相关
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# 系统相关
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 日志文件
+*.log
+logs/
+
+# 数据目录（运行时生成）
+data/
+uploads/
+backups/
+
+# Git 相关
+.git/
+.gitignore
+.gitattributes
+
+# 评测文件（不影响构建的辅助文件）
+BUG_CATALOG.md
+BENZHI_README.md
+build_benzhi_docker.sh
+benzhi.Dockerfile
+.dockerignore
+
+# 其他
+tmp/
+temp/
+.cache/
+.env
+.env.local
+README.md
