@@ -59,9 +59,22 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 	versionFile := fmt.Sprintf("model_%d_v_%s%s", req.ModelID, safeVersion, ext)
 	filePath := filepath.Join(modelDir, versionFile)
 
+	// 保存成功后若中途失败，必须清理磁盘上残留的半成品文件，避免占空间。
+	// firmware 记录成功写入后会将 savedPath 置空，表示文件已被接管，无需清理。
+	savedPath := ""
+	defer func() {
+		if savedPath == "" {
+			return
+		}
+		os.Remove(savedPath)
+		// 目录为空时一并清理，避免残留空 model_X 目录；非空时 Remove 静默失败，无副作用。
+		os.Remove(filepath.Dir(savedPath))
+	}()
+
 	if err := fileutil.SaveFile(filePath, fileData); err != nil {
 		return nil, fmt.Errorf("failed to save firmware file: %w", err)
 	}
+	savedPath = filePath
 
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("upload cancelled: %w", ctx.Err())
@@ -81,14 +94,15 @@ func (s *FirmwareService) UploadFirmware(ctx context.Context, req *model.UploadF
 
 	fw := model.NewFirmware(req.ModelID, m.Name, req.Version, actualMD5, int64(len(fileData)), filePath, releaseDate, req.Changelog)
 	if err := fw.Validate(); err != nil {
-		os.Remove(filePath)
 		return nil, err
 	}
 
 	if err := s.store.CreateFirmware(ctx, fw); err != nil {
-		os.Remove(filePath)
 		return nil, fmt.Errorf("failed to create firmware record: %w", err)
 	}
+
+	// 记录已成功创建，文件由固件接管，取消清理。
+	savedPath = ""
 
 	logger.Info("Firmware uploaded", "id", fw.ID, "version", fw.Version, "size", fw.Size)
 	return fw, nil

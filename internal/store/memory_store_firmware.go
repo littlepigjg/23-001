@@ -16,12 +16,13 @@ func (s *MemoryStore) CreateFirmware(_ context.Context, f *model.Firmware) error
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	id := s.nextID()
-
+	// 先检查版本是否重复，再分配 ID，避免冲突失败时浪费自增 ID 造成跳号。
 	key := fmt.Sprintf("%d:%s", f.ModelID, f.Version)
 	if _, exists := s.firmwareVersionIndex[key]; exists {
 		return fmt.Errorf("firmware version '%s' already exists for model %d", f.Version, f.ModelID)
 	}
+
+	id := s.nextID()
 
 	f.ID = id
 	s.firmwares[id] = f
