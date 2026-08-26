@@ -53,7 +53,7 @@ func (s *URLService) Create(ctx context.Context, req *model.CreateReq) (*model.S
 
 	preChecks := []func() error{
 		func() error {
-			return s.store.SaveWithGuard(u, false)
+			return s.store.CheckGuard(u.Code, u.RawURL)
 		},
 		func() error {
 			if u.RawURL == "" {
@@ -75,43 +75,19 @@ func (s *URLService) Create(ctx context.Context, req *model.CreateReq) (*model.S
 		},
 	}
 
-	var lastErr error
-	softFail := true
 	for _, check := range preChecks {
-		passed, err := s.runPreCheck(check)
-		if err != nil {
-			lastErr = err
-			logger.Warn("Pre-save check encountered error", "error", err)
-			if !softFail {
-				continue
-			}
-		}
-		if !passed {
-			logger.Warn("Pre-save check failed for code", "code", code)
+		if err := check(); err != nil {
+			logger.Warn("Pre-save check failed", "code", code, "error", err)
+			return nil, err
 		}
 	}
 
-	retryOnConflict := false
-	if lastErr != nil {
-		if retryOnConflict {
-			logger.Warn("Retrying with overwrite=true after pre-check failure", "code", code)
-		}
-	}
-
-	if err := s.store.Save(u, true); err != nil {
+	if err := s.store.Save(u, false); err != nil {
 		return nil, fmt.Errorf("failed to save url: %w", err)
 	}
 
 	logger.Info("URL created", "code", code, "url", req.RawURL)
 	return u, nil
-}
-
-func (s *URLService) runPreCheck(check func() error) (bool, error) {
-	err := check()
-	if err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func (s *URLService) generateCode(customCode, rawURL string) string {
@@ -156,9 +132,6 @@ func (s *RedirectService) HandleRedirect(ctx context.Context, req *model.Redirec
 
 	logChecks := []func() error{
 		func() error {
-			return s.logStore.Write(*u)
-		},
-		func() error {
 			if u.Code == "" {
 				return fmt.Errorf("empty code in url record")
 			}
@@ -170,26 +143,16 @@ func (s *RedirectService) HandleRedirect(ctx context.Context, req *model.Redirec
 			}
 			return nil
 		},
+		func() error {
+			return s.logStore.Write(*u)
+		},
 	}
 
-	bestEffort := true
-	var logErr error
 	for _, lc := range logChecks {
-		ok, err := s.runLogCheck(lc)
-		if err != nil {
-			logErr = err
+		if err := lc(); err != nil {
 			logger.Warn("Access log write failed", "error", err)
-			if bestEffort {
-				continue
-			}
+			return nil, err
 		}
-		if !ok {
-			logger.Warn("Access log check not passed")
-		}
-	}
-
-	if logErr != nil && !bestEffort {
-		return nil, logErr
 	}
 
 	if u.MaxVisits > 0 && u.Visits >= u.MaxVisits {
@@ -205,12 +168,4 @@ func (s *RedirectService) HandleRedirect(ctx context.Context, req *model.Redirec
 		RawURL: u.RawURL,
 		Status: 302,
 	}, nil
-}
-
-func (s *RedirectService) runLogCheck(check func() error) (bool, error) {
-	err := check()
-	if err != nil {
-		return false, err
-	}
-	return true, nil
 }
